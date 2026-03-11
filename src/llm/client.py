@@ -1,3 +1,6 @@
+from typing import Any
+
+
 class LLMClient:
     """Thin wrapper around the provided SDK."""
 
@@ -9,7 +12,7 @@ class LLMClient:
         """Encode text into tokens."""
         return self.model.encode(text)
 
-    def decode(self, ids)-> Any:
+    def decode(self, ids: Any) -> Any:
         """Decode tokens into text."""
         return self.model.decode(ids)
 

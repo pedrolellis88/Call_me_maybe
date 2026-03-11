@@ -5,9 +5,9 @@ UV ?= uv
 PYTHON ?= python
 MODULE ?= src
 
-FUNCTIONS_DEFINITION ?= data/input/function_definitions.json
+FUNCTIONS_DEFINITION ?= data/input/functions_definition.json
 INPUT ?= data/input/function_calling_tests.json
-OUTPUT ?= data/input/function_calling_results.json
+OUTPUT ?= data/output/function_calling_results.json
 
 EXCLUDES := .venv,__pycache__,.mypy_cache,.pytest_cache,build,dist,llm_sdk
 MYPY_FLAGS := --warn-return-any \
@@ -58,12 +58,12 @@ debug: install
 
 lint: install
 	@printf "$(INFO) Running flake8\n"
-	@$(UV) run flake8 . --exclude $(EXCLUDES) || ( \
+	@$(UV) run flake8 src --exclude $(EXCLUDES) || ( \
 		printf "$(ERR) flake8 failed.\n"; \
 		exit 1 )
 	@printf "$(OK) flake8 passed\n"
 	@printf "$(INFO) Running mypy\n"
-	@$(UV) run mypy . $(MYPY_FLAGS) || ( \
+	@$(UV) run mypy --explicit-package-bases src $(MYPY_FLAGS) || ( \
 		printf "$(ERR) mypy failed.\n"; \
 		exit 1 )
 	@printf "$(OK) mypy passed\n"
@@ -71,11 +71,11 @@ lint: install
 
 lint-strict: install
 	@printf "$(INFO) Running flake8\n"
-	@$(UV) run flake8 . --exclude $(EXCLUDES) || ( \
+	@$(UV) run flake8 src --exclude $(EXCLUDES) || ( \
 		printf "$(ERR) flake8 failed.\n"; \
 		exit 1 )
 	@printf "$(INFO) Running mypy --strict\n"
-	@$(UV) run mypy . --strict || ( \
+	@$(UV) run mypy --explicit-package-bases src --strict || ( \
 		printf "$(ERR) mypy --strict failed.\n"; \
 		exit 1 )
 	@printf "$(OK) Strict lint OK\n"
