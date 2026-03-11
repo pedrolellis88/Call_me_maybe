@@ -1,17 +1,15 @@
-from llm_sdk import Small_LLM_Model
-
-
 class LLMClient:
     """Thin wrapper around the provided SDK."""
 
     def __init__(self) -> None:
+        from llm_sdk import Small_LLM_Model
         self.model = Small_LLM_Model()
 
-    def encode(self, text: str):
+    def encode(self, text: str) -> Any:
         """Encode text into tokens."""
         return self.model.encode(text)
 
-    def decode(self, ids):
+    def decode(self, ids)-> Any:
         """Decode tokens into text."""
         return self.model.decode(ids)
 

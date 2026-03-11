@@ -7,7 +7,7 @@ MODULE ?= src
 
 FUNCTIONS_DEFINITION ?= data/input/function_definitions.json
 INPUT ?= data/input/function_calling_tests.json
-OUTPUT ?= data/output/function_calling_results.json
+OUTPUT ?= data/input/function_calling_results.json
 
 EXCLUDES := .venv,__pycache__,.mypy_cache,.pytest_cache,build,dist,llm_sdk
 MYPY_FLAGS := --warn-return-any \
