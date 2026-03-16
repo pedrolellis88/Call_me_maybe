@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from src.file_io.reader import read_json_file
 from src.file_io.writer import write_json_file
 from src.models.function_call_result import FunctionCallResult
@@ -14,8 +16,8 @@ def run_pipeline(
     output_path: str,
 ) -> None:
     """Run the full function-calling pipeline."""
-    functions_raw = read_json_file(functions_definition_path)
-    prompts_raw = read_json_file(input_path)
+    functions_raw = read_json_file(Path(functions_definition_path))
+    prompts_raw = read_json_file(Path(input_path))
 
     functions = [FunctionDefinition(**item) for item in functions_raw]
     prompts = [PromptInput(**item) for item in prompts_raw]
@@ -37,4 +39,4 @@ def run_pipeline(
         )
         results.append(result.model_dump())
 
-    write_json_file(output_path, results)
+    write_json_file(Path(output_path), results)

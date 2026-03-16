@@ -1,24 +1,430 @@
+import math
+import re
+from typing import Any, Dict, List, Optional
+
 from src.llm.client import LLMClient
+from src.llm.vocabulary import load_vocabulary
+
+
+JSON_NUMBER_PREFIX = re.compile(
+    r"^-?(?:0|[1-9]\d*)?(?:\.\d*)?(?:[eE][+-]?\d*)?$"
+)
+JSON_NUMBER_FINAL = re.compile(
+    r"^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$"
+)
+NUMBER_TOKEN_CHARS = set("0123456789-+.eE")
 
 
 class ConstrainedDecoder:
-    """Generate JSON text using constrained decoding logic."""
+    """Choose functions and generate typed argument values with constrained decoding."""
 
-    def __init__(self) -> None:
+    def __init__(self, id_to_token: Optional[Dict[int, str]] = None) -> None:
         self.llm = LLMClient()
+        self.id_to_token: Dict[int, str] = (
+            id_to_token if id_to_token is not None else load_vocabulary()
+        )
 
-    def generate_json(self, prompt: str) -> str:
-        """Generate a JSON string from a prompt."""
-        input_ids = self.llm.encode(prompt)
-        generated = []
+        self.all_token_ids: List[int] = list(self.id_to_token.keys())
+        self.token_text_cache: Dict[int, str] = {
+            token_id: str(self.llm.decode([token_id]))
+            for token_id in self.all_token_ids
+        }
 
-        for _ in range(200):
-            logits = self.llm.get_logits(input_ids + generated)
-            next_token = logits.argmax().item()
-            generated.append(next_token)
+        self.quote_token_ids: List[int] = []
+        self.string_token_ids: List[int] = []
+        self.number_token_ids: List[int] = []
 
-            partial_text = self.llm.decode(generated)
-            if partial_text.endswith("}"):
+        for token_id in self.all_token_ids:
+            token_text = self.token_text_cache[token_id]
+
+            if token_text == '"':
+                self.quote_token_ids.append(token_id)
+
+            if self._is_string_token_candidate(token_text):
+                self.string_token_ids.append(token_id)
+
+            if self._is_number_token_candidate(token_text):
+                self.number_token_ids.append(token_id)
+
+    def generate_call(
+        self,
+        prompt: str,
+        function_definitions: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Generate one structured function call."""
+        function_name = self._choose_function_name(prompt, function_definitions)
+        fn_def = self._get_function_definition(function_name, function_definitions)
+
+        parameters: Dict[str, Any] = {}
+        raw_parameters = fn_def.get("parameters", {})
+
+        if not isinstance(raw_parameters, dict):
+            raise ValueError("Function parameters definition must be a dictionary.")
+
+        for param_name, spec in raw_parameters.items():
+            if not isinstance(spec, dict):
+                raise ValueError(f"Invalid parameter spec for: {param_name}")
+
+            param_type = spec.get("type")
+            if not isinstance(param_type, str):
+                raise ValueError(f"Missing or invalid type for parameter: {param_name}")
+
+            parameters[param_name] = self._generate_parameter_value(
+                prompt=prompt,
+                function_name=function_name,
+                function_description=str(fn_def.get("description", "")),
+                parameter_name=param_name,
+                parameter_type=param_type,
+            )
+
+        return {
+            "prompt": prompt,
+            "name": function_name,
+            "parameters": parameters,
+        }
+
+    def generate_json(
+        self,
+        prompt: str,
+        function_definitions: List[Dict[str, Any]],
+    ) -> str:
+        """Generate a valid JSON string for one prompt."""
+        result = self.generate_call(prompt, function_definitions)
+        import json
+        return json.dumps(result, ensure_ascii=False)
+
+    def _choose_function_name(
+        self,
+        prompt: str,
+        function_definitions: List[Dict[str, Any]],
+    ) -> str:
+        """Use the LLM to select one function name among the allowed names."""
+        options = [
+            fn["name"]
+            for fn in function_definitions
+            if "name" in fn and isinstance(fn["name"], str)
+        ]
+
+        if not options:
+            raise ValueError("No function definitions available.")
+
+        selection_prompt = self._build_function_choice_prompt(prompt, function_definitions)
+        return self._generate_one_of(selection_prompt, options)
+
+    def _build_function_choice_prompt(
+        self,
+        prompt: str,
+        function_definitions: List[Dict[str, Any]],
+    ) -> str:
+        lines = [
+            "Choose exactly one function name.",
+            "Return only the function name.",
+            "",
+            "Available functions:",
+        ]
+
+        for fn in function_definitions:
+            name = fn.get("name", "")
+            description = fn.get("description", "")
+            parameters = fn.get("parameters", {})
+            lines.append(f"- {name}: {description}")
+            if isinstance(parameters, dict):
+                for param_name, spec in parameters.items():
+                    if isinstance(spec, dict):
+                        param_type = spec.get("type", "unknown")
+                    else:
+                        param_type = "unknown"
+                    lines.append(f"  - {param_name}: {param_type}")
+
+        lines.extend(
+            [
+                "",
+                f"User request: {prompt}",
+                "Function:",
+            ]
+        )
+        return "\n".join(lines)
+
+    def _get_function_definition(
+        self,
+        function_name: str,
+        function_definitions: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        for fn in function_definitions:
+            if fn.get("name") == function_name:
+                return fn
+        raise ValueError(f"Function definition not found: {function_name}")
+
+    def _generate_parameter_value(
+        self,
+        prompt: str,
+        function_name: str,
+        function_description: str,
+        parameter_name: str,
+        parameter_type: str,
+    ) -> Any:
+        """Generate one argument value constrained by its declared type."""
+        base_prompt = self._build_parameter_prompt(
+            prompt=prompt,
+            function_name=function_name,
+            function_description=function_description,
+            parameter_name=parameter_name,
+            parameter_type=parameter_type,
+        )
+
+        if parameter_type == "string":
+            return self._generate_json_string_value(base_prompt)
+
+        if parameter_type == "number":
+            return self._generate_json_number_value(base_prompt)
+
+        if parameter_type == "boolean":
+            return self._generate_json_boolean_value(base_prompt)
+
+        raise ValueError(f"Unsupported parameter type: {parameter_type}")
+
+    def _build_parameter_prompt(
+        self,
+        prompt: str,
+        function_name: str,
+        function_description: str,
+        parameter_name: str,
+        parameter_type: str,
+    ) -> str:
+        return "\n".join(
+            [
+                "Extract one parameter value from the user request.",
+                f"Function: {function_name}",
+                f"Description: {function_description}",
+                f"Parameter name: {parameter_name}",
+                f"Parameter type: {parameter_type}",
+                f"User request: {prompt}",
+                "Value:",
+            ]
+        )
+
+    def _generate_one_of(self, prompt: str, options: List[str], max_steps: int = 24) -> str:
+        """Constrained generation for a finite set of exact string options."""
+        prompt_ids = self.llm.encode(prompt)
+        generated: List[int] = []
+        built = ""
+        remaining = list(options)
+
+        for _ in range(max_steps):
+            if built in remaining and len(remaining) == 1:
+                return built
+
+            allowed_ids = self._allowed_tokens_for_exact_choices(
+                current_text=built,
+                choices=remaining,
+            )
+            if not allowed_ids:
                 break
 
-        return self.llm.decode(generated)
+            next_token = self._pick_next_token(prompt_ids, generated, allowed_ids)
+            token_text = self._token_to_text(next_token)
+
+            built += token_text
+            generated.append(next_token)
+
+            remaining = [choice for choice in remaining if choice.startswith(built)]
+
+            if len(remaining) == 1 and built == remaining[0]:
+                return built
+
+        exact_matches = [choice for choice in options if choice == built]
+        if exact_matches:
+            return exact_matches[0]
+
+        if len(remaining) == 1:
+            return remaining[0]
+
+        raise ValueError(f"Could not constrained-decode one option from: {options}")
+
+    def _allowed_tokens_for_exact_choices(
+        self,
+        current_text: str,
+        choices: List[str],
+    ) -> List[int]:
+        allowed: List[int] = []
+
+        for token_id in self.all_token_ids:
+            token_text = self._token_to_text(token_id)
+            candidate = current_text + token_text
+            if any(choice.startswith(candidate) for choice in choices):
+                allowed.append(token_id)
+
+        return allowed
+
+    def _pick_next_token(
+        self,
+        prompt_ids: List[int],
+        generated_ids: List[int],
+        allowed_token_ids: List[int],
+    ) -> int:
+        logits = self.llm.get_logits(prompt_ids + generated_ids)
+
+        best_id: Optional[int] = None
+        best_score = -math.inf
+
+        for token_id in allowed_token_ids:
+            if token_id < 0 or token_id >= len(logits):
+                continue
+            score = float(logits[token_id])
+            if score > best_score:
+                best_score = score
+                best_id = token_id
+
+        if best_id is None:
+            raise ValueError("No valid token available during constrained decoding.")
+
+        return best_id
+
+    def _token_to_text(self, token_id: int) -> str:
+        cached = self.token_text_cache.get(token_id)
+        if cached is not None:
+            return cached
+
+        text = str(self.llm.decode([token_id]))
+        self.token_text_cache[token_id] = text
+        return text
+
+    def _generate_json_boolean_value(self, prompt: str) -> bool:
+        raw = self._generate_one_of(prompt, ["true", "false"])
+        return raw == "true"
+
+    def _generate_json_number_value(self, prompt: str, max_steps: int = 16) -> float:
+        """Constrained generation for a JSON number."""
+        prompt_ids = self.llm.encode(prompt)
+        generated: List[int] = []
+        built = ""
+        last_valid_number: Optional[str] = None
+
+        for _ in range(max_steps):
+            allowed_ids = self._allowed_tokens_for_number(current_text=built)
+            if not allowed_ids:
+                break
+
+            next_token = self._pick_next_token(prompt_ids, generated, allowed_ids)
+            token_text = self._token_to_text(next_token)
+            candidate = built + token_text
+
+            if not self._is_json_number_prefix(candidate):
+                break
+
+            built = candidate
+            generated.append(next_token)
+
+            if self._is_json_number_final(built):
+                last_valid_number = built
+
+        if last_valid_number is not None:
+            return float(last_valid_number)
+
+        raise ValueError(f"Failed to decode a valid JSON number. Got: {built!r}")
+
+    def _allowed_tokens_for_number(self, current_text: str) -> List[int]:
+        allowed: List[int] = []
+
+        for token_id in self.number_token_ids:
+            token_text = self._token_to_text(token_id)
+            candidate = current_text + token_text
+            if self._is_json_number_prefix(candidate):
+                allowed.append(token_id)
+
+        return allowed
+
+    def _is_json_number_prefix(self, text: str) -> bool:
+        if not text:
+            return True
+        return bool(JSON_NUMBER_PREFIX.fullmatch(text))
+
+    def _is_json_number_final(self, text: str) -> bool:
+        return bool(JSON_NUMBER_FINAL.fullmatch(text))
+
+    def _generate_json_string_value(self, prompt: str, max_steps: int = 20) -> str:
+        """Constrained generation for JSON string content."""
+        prompt_ids = self.llm.encode(prompt)
+        generated: List[int] = []
+        built = ""
+
+        for _ in range(max_steps):
+            allowed_ids = self._allowed_tokens_for_string_content(current_text=built)
+            if not allowed_ids:
+                break
+
+            next_token = self._pick_next_token(prompt_ids, generated, allowed_ids)
+            token_text = self._token_to_text(next_token)
+
+            if token_text == '"':
+                return built.strip()
+
+            candidate = built + token_text
+            if not self._is_valid_json_string_content(candidate):
+                break
+
+            built = candidate
+            generated.append(next_token)
+
+        cleaned = built.strip()
+        if cleaned:
+            return cleaned
+
+        raise ValueError("Failed to decode a valid JSON string value.")
+
+    def _allowed_tokens_for_string_content(self, current_text: str) -> List[int]:
+        """Allow tokens that preserve valid JSON string content."""
+        allowed: List[int] = []
+
+        for token_id in self.quote_token_ids:
+            allowed.append(token_id)
+
+        for token_id in self.string_token_ids:
+            token_text = self._token_to_text(token_id)
+            candidate = current_text + token_text
+            if self._is_valid_json_string_content(candidate):
+                allowed.append(token_id)
+
+        return allowed
+
+    def _is_valid_json_string_content(self, text: str) -> bool:
+        """Fast conservative validation for JSON string content."""
+        if not text:
+            return True
+
+        if '"' in text:
+            return False
+
+        if "\n" in text or "\r" in text or "\t" in text:
+            return False
+
+        for char in text:
+            code = ord(char)
+            if code < 32:
+                return False
+
+        return True
+
+    def _is_string_token_candidate(self, token_text: str) -> bool:
+        """Cheap pre-filter for tokens usable inside string content."""
+        if not token_text:
+            return False
+
+        if '"' in token_text:
+            return False
+
+        if "\n" in token_text or "\r" in token_text or "\t" in token_text:
+            return False
+
+        for char in token_text:
+            if ord(char) < 32:
+                return False
+
+        return True
+
+    def _is_number_token_candidate(self, token_text: str) -> bool:
+        """Cheap pre-filter for tokens usable inside JSON numbers."""
+        if not token_text:
+            return False
+
+        return all(char in NUMBER_TOKEN_CHARS for char in token_text)
