@@ -1,35 +1,37 @@
 [
-  {
-    "prompt": "What is the sum of 2 and 3?"
-  },
-  {
-    "prompt": "What is the sum of 265 and 345?"
-  },
-  {
-    "prompt": "Greet shrek"
-  },
-  {
-    "prompt": "Greet john"
-  },
-  {
-    "prompt": "Reverse the string 'hello'"
-  },
-  {
-    "prompt": "Reverse the string 'world'"
-  },
-  {
-    "prompt": "What is the square root of 16?"
-  },
-  {
-    "prompt": "Calculate the square root of 144"
-  },
-  {
-    "prompt": "Replace all numbers in \"Hello 34 I'm 233 years old\" with NUMBERS"
-  },
-  {
-    "prompt": "Replace all vowels in 'Programming is fun' with asterisks"
-  },
-  {
-    "prompt": "Substitute the word 'cat' with 'dog' in 'The cat sat on the mat with another cat'"
-  }
+  { "prompt": "Add 2 and 3" },
+  { "prompt": "Add -4 and 5.5" },
+  { "prompt": "Add two numbers" },
+  { "prompt": "Add 7" },
+  { "prompt": "Sum" },
+
+  { "prompt": "Reverse \"banana\"" },
+  { "prompt": "Reverse casa" },
+  { "prompt": "Reverse" },
+  { "prompt": "Reverse the string" },
+
+  { "prompt": "Greet Alice" },
+  { "prompt": "Can you greet John for me?" },
+  { "prompt": "Greet" },
+  { "prompt": "Greet me" },
+  { "prompt": "Say hello to me" },
+
+  { "prompt": "Square root of 9" },
+  { "prompt": "Square root of 2.25" },
+  { "prompt": "What is the square root?" },
+  { "prompt": "Square root" },
+
+  { "prompt": "Replace all numbers in \"abc123def\" with X" },
+  { "prompt": "Replace all vowels in \"banana\" with asterisk" },
+  { "prompt": "Substitute the word \"cat\" with \"dog\" in \"my cat sleeps\"" },
+  { "prompt": "Substitute 'cat' with 'dog'" },
+  { "prompt": "Replace all numbers" },
+  { "prompt": "Replace all vowels in \"banana\"" },
+
+  { "prompt": "" },
+  { "prompt": "   " },
+  { "prompt": "???" },
+  { "prompt": "Do something" },
+  { "prompt": "structure" },
+  { "prompt": "untrue statement" }
 ]

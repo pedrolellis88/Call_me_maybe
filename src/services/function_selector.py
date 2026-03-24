@@ -17,9 +17,17 @@ class FunctionSelector:
     ) -> Dict[str, Any]:
         """Generate a structured function call prediction for one prompt."""
         function_definitions = [function.model_dump() for function in functions]
-        result = self.decoder.generate_call(prompt, function_definitions)
 
-        return {
-            "name": result["name"],
-            "parameters": result["parameters"],
-        }
+        try:
+            result = self.decoder.generate_call(prompt, function_definitions)
+            return {
+                "name": result["name"],
+                "parameters": result["parameters"],
+                "error": None,
+            }
+        except ValueError as exc:
+            return {
+                "name": None,
+                "parameters": {},
+                "error": str(exc),
+            }

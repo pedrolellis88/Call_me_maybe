@@ -1,9 +1,10 @@
 import math
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.llm.client import LLMClient
 from src.llm.vocabulary import load_vocabulary
+from src.services.parameter_extractor import ParameterExtractor
 
 
 JSON_NUMBER_PREFIX = re.compile(
@@ -13,6 +14,7 @@ JSON_NUMBER_FINAL = re.compile(
     r"^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$"
 )
 NUMBER_TOKEN_CHARS = set("0123456789-+.eE")
+WORD_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_\-]*")
 
 
 class ConstrainedDecoder:
@@ -20,6 +22,7 @@ class ConstrainedDecoder:
 
     def __init__(self, id_to_token: Optional[Dict[int, str]] = None) -> None:
         self.llm = LLMClient()
+        self.parameter_extractor = ParameterExtractor()
         self.id_to_token: Dict[int, str] = (
             id_to_token if id_to_token is not None else load_vocabulary()
         )
@@ -46,12 +49,18 @@ class ConstrainedDecoder:
             if self._is_number_token_candidate(token_text):
                 self.number_token_ids.append(token_id)
 
+        self._number_allowed_cache: Dict[str, List[int]] = {}
+        self._string_allowed_cache: Dict[str, List[int]] = {}
+
     def generate_call(
         self,
         prompt: str,
         function_definitions: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """Generate one structured function call."""
+        if not self._has_function_intent(prompt, function_definitions):
+            raise ValueError("Could not determine a valid target function from the prompt.")
+
         function_name = self._choose_function_name(prompt, function_definitions)
         fn_def = self._get_function_definition(function_name, function_definitions)
 
@@ -89,9 +98,67 @@ class ConstrainedDecoder:
         function_definitions: List[Dict[str, Any]],
     ) -> str:
         """Generate a valid JSON string for one prompt."""
-        result = self.generate_call(prompt, function_definitions)
         import json
+
+        result = self.generate_call(prompt, function_definitions)
         return json.dumps(result, ensure_ascii=False)
+
+    def _has_function_intent(
+        self,
+        prompt: str,
+        function_definitions: List[Dict[str, Any]],
+    ) -> bool:
+        """Return True only if the prompt shows some evidence of matching a function."""
+        normalized = prompt.strip().lower()
+
+        if not normalized:
+            return False
+
+        if not re.search(r"[a-z0-9]", normalized):
+            return False
+
+        intent_patterns = {
+            "fn_add_numbers": [
+                r"\badd\b",
+                r"\bsum\b",
+                r"\bplus\b",
+                r"\btotal\b",
+            ],
+            "fn_reverse_string": [
+                r"\breverse\b",
+                r"\bbackwards\b",
+            ],
+            "fn_greet": [
+                r"\bgreet\b",
+                r"\bhello\b",
+                r"\bhi\b",
+            ],
+            "fn_get_square_root": [
+                r"\bsquare root\b",
+                r"\bsqrt\b",
+                r"\broot\b",
+            ],
+            "fn_substitute_string_with_regex": [
+                r"\bsubstitute\b",
+                r"\breplace\b",
+                r"\bregex\b",
+            ],
+        }
+
+        available_names = {
+            fn.get("name")
+            for fn in function_definitions
+            if isinstance(fn.get("name"), str)
+        }
+
+        for function_name, patterns in intent_patterns.items():
+            if function_name not in available_names:
+                continue
+            for pattern in patterns:
+                if re.search(pattern, normalized):
+                    return True
+
+        return False
 
     def _choose_function_name(
         self,
@@ -109,7 +176,7 @@ class ConstrainedDecoder:
             raise ValueError("No function definitions available.")
 
         selection_prompt = self._build_function_choice_prompt(prompt, function_definitions)
-        return self._generate_one_of(selection_prompt, options)
+        return self._generate_one_of(selection_prompt, options, max_steps=12)
 
     def _build_function_choice_prompt(
         self,
@@ -164,6 +231,26 @@ class ConstrainedDecoder:
         parameter_type: str,
     ) -> Any:
         """Generate one argument value constrained by its declared type."""
+        extracted = self.parameter_extractor.extract_parameter(
+            prompt=prompt,
+            function_name=function_name,
+            parameter_name=parameter_name,
+            parameter_type=parameter_type,
+        )
+        if extracted is not None:
+            return extracted
+
+        if not self.parameter_extractor.can_fallback_to_llm(
+            prompt=prompt,
+            function_name=function_name,
+            parameter_name=parameter_name,
+            parameter_type=parameter_type,
+        ):
+            raise ValueError(
+                f"Missing enough information to extract parameter "
+                f"{parameter_name!r} for function {function_name!r}."
+            )
+
         base_prompt = self._build_parameter_prompt(
             prompt=prompt,
             function_name=function_name,
@@ -173,10 +260,14 @@ class ConstrainedDecoder:
         )
 
         if parameter_type == "string":
-            return self._generate_json_string_value(base_prompt)
+            return self._generate_json_string_value(
+                base_prompt,
+                max_steps=4,
+                max_chars=24,
+            )
 
         if parameter_type == "number":
-            return self._generate_json_number_value(base_prompt)
+            return self._generate_json_number_value(base_prompt, max_steps=6)
 
         if parameter_type == "boolean":
             return self._generate_json_boolean_value(base_prompt)
@@ -193,68 +284,91 @@ class ConstrainedDecoder:
     ) -> str:
         return "\n".join(
             [
-                "Extract one parameter value from the user request.",
+                "Extract exactly one parameter value for a function call.",
+                "Return only the raw value for this one parameter.",
+                "Do not solve the task.",
+                "Do not explain anything.",
+                "Do not transform the input.",
+                "Do not reverse, compute, summarize, or describe.",
+                "Copy exact text from the user request whenever possible.",
                 f"Function: {function_name}",
                 f"Description: {function_description}",
                 f"Parameter name: {parameter_name}",
                 f"Parameter type: {parameter_type}",
-                f"User request: {prompt}",
-                "Value:",
+                f"User request: <<<{prompt}>>>",
+                "Parameter value:",
             ]
         )
 
-    def _generate_one_of(self, prompt: str, options: List[str], max_steps: int = 24) -> str:
-        """Constrained generation for a finite set of exact string options."""
+    def _generate_one_of(
+        self,
+        prompt: str,
+        options: List[str],
+        max_steps: int = 12,
+    ) -> str:
+        """
+        Constrained generation for a finite set of exact string options,
+        using tokenized options to avoid scanning the whole vocabulary.
+        """
         prompt_ids = self.llm.encode(prompt)
+        option_token_pairs: List[Tuple[str, List[int]]] = [
+            (option, self.llm.encode(option)) for option in options
+        ]
+
         generated: List[int] = []
-        built = ""
-        remaining = list(options)
+        remaining = option_token_pairs
 
         for _ in range(max_steps):
-            if built in remaining and len(remaining) == 1:
-                return built
+            exact_matches = [
+                text for text, token_ids in remaining if token_ids == generated
+            ]
+            if len(exact_matches) == 1 and len(remaining) == 1:
+                return exact_matches[0]
 
-            allowed_ids = self._allowed_tokens_for_exact_choices(
-                current_text=built,
+            allowed_ids = self._allowed_next_tokens_for_tokenized_choices(
+                current_ids=generated,
                 choices=remaining,
             )
             if not allowed_ids:
                 break
 
             next_token = self._pick_next_token(prompt_ids, generated, allowed_ids)
-            token_text = self._token_to_text(next_token)
-
-            built += token_text
             generated.append(next_token)
 
-            remaining = [choice for choice in remaining if choice.startswith(built)]
+            remaining = [
+                (text, token_ids)
+                for text, token_ids in remaining
+                if len(token_ids) >= len(generated)
+                and token_ids[: len(generated)] == generated
+            ]
 
-            if len(remaining) == 1 and built == remaining[0]:
-                return built
+            exact_matches = [
+                text for text, token_ids in remaining if token_ids == generated
+            ]
+            if len(exact_matches) == 1 and len(remaining) == 1:
+                return exact_matches[0]
 
-        exact_matches = [choice for choice in options if choice == built]
-        if exact_matches:
+        exact_matches = [text for text, token_ids in remaining if token_ids == generated]
+        if len(exact_matches) == 1:
             return exact_matches[0]
 
         if len(remaining) == 1:
-            return remaining[0]
+            return remaining[0][0]
 
         raise ValueError(f"Could not constrained-decode one option from: {options}")
 
-    def _allowed_tokens_for_exact_choices(
+    def _allowed_next_tokens_for_tokenized_choices(
         self,
-        current_text: str,
-        choices: List[str],
+        current_ids: Sequence[int],
+        choices: Sequence[Tuple[str, List[int]]],
     ) -> List[int]:
-        allowed: List[int] = []
-
-        for token_id in self.all_token_ids:
-            token_text = self._token_to_text(token_id)
-            candidate = current_text + token_text
-            if any(choice.startswith(candidate) for choice in choices):
-                allowed.append(token_id)
-
-        return allowed
+        allowed = {
+            token_ids[len(current_ids)]
+            for _, token_ids in choices
+            if len(token_ids) > len(current_ids)
+            and token_ids[: len(current_ids)] == list(current_ids)
+        }
+        return list(allowed)
 
     def _pick_next_token(
         self,
@@ -262,6 +376,12 @@ class ConstrainedDecoder:
         generated_ids: List[int],
         allowed_token_ids: List[int],
     ) -> int:
+        if not allowed_token_ids:
+            raise ValueError("No valid token available during constrained decoding.")
+
+        if len(allowed_token_ids) == 1:
+            return allowed_token_ids[0]
+
         logits = self.llm.get_logits(prompt_ids + generated_ids)
 
         best_id: Optional[int] = None
@@ -290,10 +410,10 @@ class ConstrainedDecoder:
         return text
 
     def _generate_json_boolean_value(self, prompt: str) -> bool:
-        raw = self._generate_one_of(prompt, ["true", "false"])
+        raw = self._generate_one_of(prompt, ["true", "false"], max_steps=6)
         return raw == "true"
 
-    def _generate_json_number_value(self, prompt: str, max_steps: int = 16) -> float:
+    def _generate_json_number_value(self, prompt: str, max_steps: int = 6) -> float:
         """Constrained generation for a JSON number."""
         prompt_ids = self.llm.encode(prompt)
         generated: List[int] = []
@@ -324,6 +444,10 @@ class ConstrainedDecoder:
         raise ValueError(f"Failed to decode a valid JSON number. Got: {built!r}")
 
     def _allowed_tokens_for_number(self, current_text: str) -> List[int]:
+        cached = self._number_allowed_cache.get(current_text)
+        if cached is not None:
+            return cached
+
         allowed: List[int] = []
 
         for token_id in self.number_token_ids:
@@ -332,6 +456,7 @@ class ConstrainedDecoder:
             if self._is_json_number_prefix(candidate):
                 allowed.append(token_id)
 
+        self._number_allowed_cache[current_text] = allowed
         return allowed
 
     def _is_json_number_prefix(self, text: str) -> bool:
@@ -342,13 +467,21 @@ class ConstrainedDecoder:
     def _is_json_number_final(self, text: str) -> bool:
         return bool(JSON_NUMBER_FINAL.fullmatch(text))
 
-    def _generate_json_string_value(self, prompt: str, max_steps: int = 20) -> str:
-        """Constrained generation for JSON string content."""
+    def _generate_json_string_value(
+        self,
+        prompt: str,
+        max_steps: int = 4,
+        max_chars: int = 24,
+    ) -> str:
+        """Constrained generation for short JSON string content."""
         prompt_ids = self.llm.encode(prompt)
         generated: List[int] = []
         built = ""
 
         for _ in range(max_steps):
+            if len(built) >= max_chars:
+                break
+
             allowed_ids = self._allowed_tokens_for_string_content(current_text=built)
             if not allowed_ids:
                 break
@@ -357,35 +490,77 @@ class ConstrainedDecoder:
             token_text = self._token_to_text(next_token)
 
             if token_text == '"':
-                return built.strip()
+                cleaned = self._clean_generated_string(built)
+                if cleaned:
+                    return cleaned
+                break
 
             candidate = built + token_text
+            if len(candidate) > max_chars:
+                break
+
             if not self._is_valid_json_string_content(candidate):
                 break
 
             built = candidate
+
+            if built.endswith((".", "(", ")", ",", ";", ":")):
+                break
+
             generated.append(next_token)
 
-        cleaned = built.strip()
+        cleaned = self._clean_generated_string(built)
         if cleaned:
             return cleaned
 
         raise ValueError("Failed to decode a valid JSON string value.")
 
     def _allowed_tokens_for_string_content(self, current_text: str) -> List[int]:
-        """Allow tokens that preserve valid JSON string content."""
+        """Allow only a conservative subset of string tokens plus quote."""
+        cached = self._string_allowed_cache.get(current_text)
+        if cached is not None:
+            return cached
+
         allowed: List[int] = []
 
-        for token_id in self.quote_token_ids:
-            allowed.append(token_id)
+        if current_text:
+            allowed.extend(self.quote_token_ids)
 
         for token_id in self.string_token_ids:
             token_text = self._token_to_text(token_id)
+
+            if len(token_text) > 6:
+                continue
+
+            if any(symbol in token_text for symbol in ["(", ")", ".", ",", ";", ":"]):
+                continue
+
             candidate = current_text + token_text
             if self._is_valid_json_string_content(candidate):
                 allowed.append(token_id)
 
+        self._string_allowed_cache[current_text] = allowed
         return allowed
+
+    def _clean_generated_string(self, text: str) -> str:
+        """Trim noisy fallback generations to a short literal-like value."""
+        cleaned = text.strip()
+        if not cleaned:
+            return ""
+
+        for separator in [".", "(", ")", ",", ";", ":"]:
+            if separator in cleaned:
+                cleaned = cleaned.split(separator, maxsplit=1)[0].strip()
+
+        parts = cleaned.split()
+        if parts:
+            cleaned = parts[0]
+
+        match = WORD_TOKEN.search(cleaned)
+        if match:
+            return match.group(0)
+
+        return cleaned
 
     def _is_valid_json_string_content(self, text: str) -> bool:
         """Fast conservative validation for JSON string content."""
@@ -416,8 +591,12 @@ class ConstrainedDecoder:
         if "\n" in token_text or "\r" in token_text or "\t" in token_text:
             return False
 
+        if len(token_text) > 6:
+            return False
+
         for char in token_text:
-            if ord(char) < 32:
+            code = ord(char)
+            if code < 32:
                 return False
 
         return True

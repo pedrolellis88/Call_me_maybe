@@ -29,14 +29,36 @@ def run_pipeline(
 
     for prompt in prompts:
         raw = selector.select(prompt.prompt, functions)
-        fn = SchemaValidator.find_function(raw["name"], functions)
-        params = extractor.extract(raw, fn)
 
-        result = FunctionCallResult(
-            prompt=prompt.prompt,
-            name=fn.name,
-            parameters=params,
-        )
-        results.append(result.model_dump())
+        if raw["error"] is not None or raw["name"] is None:
+            results.append(
+                {
+                    "prompt": prompt.prompt,
+                    "name": None,
+                    "parameters": {},
+                    "error": raw["error"],
+                }
+            )
+            continue
+
+        try:
+            fn = SchemaValidator.find_function(raw["name"], functions)
+            params = extractor.extract(raw, fn)
+
+            result = FunctionCallResult(
+                prompt=prompt.prompt,
+                name=fn.name,
+                parameters=params,
+            )
+            results.append(result.model_dump())
+        except ValueError as exc:
+            results.append(
+                {
+                    "prompt": prompt.prompt,
+                    "name": raw["name"],
+                    "parameters": {},
+                    "error": str(exc),
+                }
+            )
 
     write_json_file(Path(output_path), results)
