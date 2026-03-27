@@ -12,4 +12,4 @@ def write_json_file(path: Path, data: Any) -> None:
         with path.open("w", encoding="utf-8") as file:
             json.dump(data, file, ensure_ascii=False, indent=2)
     except OSError as exc:
-        raise OutputFileError(f"Could not write output file {path}: {exc}") from exc # noqa
+        raise OutputFileError(f"Could not write output file {path}: {exc}") from exc  # noqa

@@ -18,7 +18,7 @@ WORD_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_\-]*")
 
 
 class ConstrainedDecoder:
-    """Choose functions and generate typed argument values with constrained decoding."""
+    """Choose functions and generate typed argument values with constrained decoding."""  # noqa: E501
 
     def __init__(self, id_to_token: Optional[Dict[int, str]] = None) -> None:
         self.llm = LLMClient()
@@ -59,24 +59,29 @@ class ConstrainedDecoder:
     ) -> Dict[str, Any]:
         """Generate one structured function call."""
         if not self._has_function_intent(prompt, function_definitions):
-            raise ValueError("Could not determine a valid target function from the prompt.")
-
-        function_name = self._choose_function_name(prompt, function_definitions)
-        fn_def = self._get_function_definition(function_name, function_definitions)
+            raise ValueError(  # noqa: E501
+                "Could not determine a valid target function from the prompt.")
+    # noqa: E501
+        function_name = self._choose_function_name(  # noqa: E501
+            prompt, function_definitions)
+        fn_def = self._get_function_definition(
+            function_name, function_definitions)
 
         parameters: Dict[str, Any] = {}
-        raw_parameters = fn_def.get("parameters", {})
+        raw_parameters = fn_def.get("parameters", {})  # noqa: E501
 
         if not isinstance(raw_parameters, dict):
-            raise ValueError("Function parameters definition must be a dictionary.")
+            raise ValueError(
+                "Function parameters definition must be a dictionary.")
 
         for param_name, spec in raw_parameters.items():
             if not isinstance(spec, dict):
-                raise ValueError(f"Invalid parameter spec for: {param_name}")
+                raise ValueError(f"Invalid parameter spec for: {param_name}")  # noqa: E501
 
             param_type = spec.get("type")
             if not isinstance(param_type, str):
-                raise ValueError(f"Missing or invalid type for parameter: {param_name}")
+                raise ValueError(
+                    f"Missing or invalid type for parameter: {param_name}")
 
             parameters[param_name] = self._generate_parameter_value(
                 prompt=prompt,
@@ -103,12 +108,12 @@ class ConstrainedDecoder:
         result = self.generate_call(prompt, function_definitions)
         return json.dumps(result, ensure_ascii=False)
 
-    def _has_function_intent(
+    def _has_function_intent(  # noqa: E501
         self,
         prompt: str,
         function_definitions: List[Dict[str, Any]],
     ) -> bool:
-        """Return True only if the prompt shows some evidence of matching a function."""
+        """Return True only if the prompt shows some evidence of matching a function."""  # noqa: E501
         normalized = prompt.strip().lower()
 
         if not normalized:
@@ -170,12 +175,13 @@ class ConstrainedDecoder:
             fn["name"]
             for fn in function_definitions
             if "name" in fn and isinstance(fn["name"], str)
-        ]
+        ]  # noqa: E501
 
         if not options:
             raise ValueError("No function definitions available.")
 
-        selection_prompt = self._build_function_choice_prompt(prompt, function_definitions)
+        selection_prompt = self._build_function_choice_prompt(
+            prompt, function_definitions)
         return self._generate_one_of(selection_prompt, options, max_steps=12)
 
     def _build_function_choice_prompt(
@@ -326,13 +332,14 @@ class ConstrainedDecoder:
                 return exact_matches[0]
 
             allowed_ids = self._allowed_next_tokens_for_tokenized_choices(
-                current_ids=generated,
+                current_ids=generated,  # noqa: E501
                 choices=remaining,
             )
             if not allowed_ids:
                 break
 
-            next_token = self._pick_next_token(prompt_ids, generated, allowed_ids)
+            next_token = self._pick_next_token(
+                prompt_ids, generated, allowed_ids)
             generated.append(next_token)
 
             remaining = [
@@ -341,21 +348,24 @@ class ConstrainedDecoder:
                 if len(token_ids) >= len(generated)
                 and token_ids[: len(generated)] == generated
             ]
-
+    # noqa: E501
             exact_matches = [
                 text for text, token_ids in remaining if token_ids == generated
             ]
             if len(exact_matches) == 1 and len(remaining) == 1:
                 return exact_matches[0]
 
-        exact_matches = [text for text, token_ids in remaining if token_ids == generated]
+        exact_matches = [  # noqa: E501
+            text for text,
+            token_ids in remaining if token_ids == generated]
         if len(exact_matches) == 1:
             return exact_matches[0]
 
         if len(remaining) == 1:
             return remaining[0][0]
 
-        raise ValueError(f"Could not constrained-decode one option from: {options}")
+        raise ValueError(
+            f"Could not constrained-decode one option from: {options}")
 
     def _allowed_next_tokens_for_tokenized_choices(
         self,
@@ -367,7 +377,7 @@ class ConstrainedDecoder:
             for _, token_ids in choices
             if len(token_ids) > len(current_ids)
             and token_ids[: len(current_ids)] == list(current_ids)
-        }
+        }  # noqa: E501
         return list(allowed)
 
     def _pick_next_token(
@@ -377,7 +387,8 @@ class ConstrainedDecoder:
         allowed_token_ids: List[int],
     ) -> int:
         if not allowed_token_ids:
-            raise ValueError("No valid token available during constrained decoding.")
+            raise ValueError(
+                "No valid token available during constrained decoding.")
 
         if len(allowed_token_ids) == 1:
             return allowed_token_ids[0]
@@ -385,7 +396,7 @@ class ConstrainedDecoder:
         logits = self.llm.get_logits(prompt_ids + generated_ids)
 
         best_id: Optional[int] = None
-        best_score = -math.inf
+        best_score = -math.inf  # noqa: E501
 
         for token_id in allowed_token_ids:
             if token_id < 0 or token_id >= len(logits):
@@ -396,12 +407,13 @@ class ConstrainedDecoder:
                 best_id = token_id
 
         if best_id is None:
-            raise ValueError("No valid token available during constrained decoding.")
+            raise ValueError(
+                "No valid token available during constrained decoding.")
 
         return best_id
 
     def _token_to_text(self, token_id: int) -> str:
-        cached = self.token_text_cache.get(token_id)
+        cached = self.token_text_cache.get(token_id)  # noqa: E501
         if cached is not None:
             return cached
 
@@ -413,7 +425,10 @@ class ConstrainedDecoder:
         raw = self._generate_one_of(prompt, ["true", "false"], max_steps=6)
         return raw == "true"
 
-    def _generate_json_number_value(self, prompt: str, max_steps: int = 6) -> float:
+    def _generate_json_number_value(  # noqa: E501
+            self,
+            prompt: str,
+            max_steps: int = 6) -> float:
         """Constrained generation for a JSON number."""
         prompt_ids = self.llm.encode(prompt)
         generated: List[int] = []
@@ -425,7 +440,8 @@ class ConstrainedDecoder:
             if not allowed_ids:
                 break
 
-            next_token = self._pick_next_token(prompt_ids, generated, allowed_ids)
+            next_token = self._pick_next_token(
+                prompt_ids, generated, allowed_ids)  # noqa: E501
             token_text = self._token_to_text(next_token)
             candidate = built + token_text
 
@@ -441,7 +457,9 @@ class ConstrainedDecoder:
         if last_valid_number is not None:
             return float(last_valid_number)
 
-        raise ValueError(f"Failed to decode a valid JSON number. Got: {built!r}")
+        raise ValueError(
+            f"Failed to decode a valid JSON number. Got: {
+                built!r}")
 
     def _allowed_tokens_for_number(self, current_text: str) -> List[int]:
         cached = self._number_allowed_cache.get(current_text)
@@ -464,11 +482,11 @@ class ConstrainedDecoder:
             return True
         return bool(JSON_NUMBER_PREFIX.fullmatch(text))
 
-    def _is_json_number_final(self, text: str) -> bool:
+    def _is_json_number_final(self, text: str) -> bool:  # noqa: E501
         return bool(JSON_NUMBER_FINAL.fullmatch(text))
 
     def _generate_json_string_value(
-        self,
+        self,  # noqa: E501
         prompt: str,
         max_steps: int = 4,
         max_chars: int = 24,
@@ -482,11 +500,13 @@ class ConstrainedDecoder:
             if len(built) >= max_chars:
                 break
 
-            allowed_ids = self._allowed_tokens_for_string_content(current_text=built)
+            allowed_ids = self._allowed_tokens_for_string_content(
+                current_text=built)
             if not allowed_ids:
                 break
 
-            next_token = self._pick_next_token(prompt_ids, generated, allowed_ids)
+            next_token = self._pick_next_token(
+                prompt_ids, generated, allowed_ids)
             token_text = self._token_to_text(next_token)
 
             if token_text == '"':
@@ -495,7 +515,7 @@ class ConstrainedDecoder:
                     return cleaned
                 break
 
-            candidate = built + token_text
+            candidate = built + token_text  # noqa: E501
             if len(candidate) > max_chars:
                 break
 
@@ -512,10 +532,11 @@ class ConstrainedDecoder:
         cleaned = self._clean_generated_string(built)
         if cleaned:
             return cleaned
-
+    # noqa: E501
         raise ValueError("Failed to decode a valid JSON string value.")
 
-    def _allowed_tokens_for_string_content(self, current_text: str) -> List[int]:
+    def _allowed_tokens_for_string_content(
+            self, current_text: str) -> List[int]:
         """Allow only a conservative subset of string tokens plus quote."""
         cached = self._string_allowed_cache.get(current_text)
         if cached is not None:
@@ -532,7 +553,9 @@ class ConstrainedDecoder:
             if len(token_text) > 6:
                 continue
 
-            if any(symbol in token_text for symbol in ["(", ")", ".", ",", ";", ":"]):
+            if any(
+                symbol in token_text for symbol in [
+                    "(", ")", ".", ",", ";", ":"]):
                 continue
 
             candidate = current_text + token_text

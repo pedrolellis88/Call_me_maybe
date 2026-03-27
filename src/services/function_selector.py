@@ -1,32 +1,34 @@
-from typing import Any, Dict, List
-
-from src.llm.constrained_decoder import ConstrainedDecoder
-from src.models.function_definition import FunctionDefinition
+from typing import Any, Optional
 
 
 class FunctionSelector:
-    """Select a function call candidate from the user prompt."""
-
-    def __init__(self) -> None:
-        self.decoder = ConstrainedDecoder()
-
-    def select(
+    def __init__(
         self,
-        prompt: str,
-        functions: List[FunctionDefinition],
-    ) -> Dict[str, Any]:
-        """Generate a structured function call prediction for one prompt."""
-        function_definitions = [function.model_dump() for function in functions]
+        functions: list[dict[str, Any]],
+        decoder: Optional[Any] = None,
+    ) -> None:
+        self.functions = functions
 
+        if decoder is not None:
+            self.decoder = decoder
+        else:
+            from src.llm.constrained_decoder import ConstrainedDecoder
+
+            self.decoder = ConstrainedDecoder()
+
+    def select_and_extract(self, prompt: str) -> dict[str, Any]:
         try:
-            result = self.decoder.generate_call(prompt, function_definitions)
+            result = self.decoder.decode(prompt)
+
             return {
-                "name": result["name"],
-                "parameters": result["parameters"],
-                "error": None,
+                "prompt": prompt,
+                "name": result.get("name"),
+                "parameters": result.get("parameters", {}),
             }
-        except ValueError as exc:
+
+        except Exception as exc:
             return {
+                "prompt": prompt,
                 "name": None,
                 "parameters": {},
                 "error": str(exc),

@@ -30,11 +30,12 @@ class ParameterExtractor:
         parameter_name: str,
         parameter_type: str,
     ) -> Optional[Any]:
-        """Try to extract one parameter value deterministically from the prompt."""
+        """Try to extract one parameter value deterministically from the prompt."""  # noqa: E501
         lower_prompt = prompt.lower()
 
         if parameter_type == "number":
-            return self._extract_number_parameter(prompt, function_name, parameter_name)
+            return self._extract_number_parameter(  # noqa: E501
+                prompt, function_name, parameter_name)
 
         if parameter_type == "boolean":
             return self._extract_boolean_parameter(prompt)
@@ -61,8 +62,9 @@ class ParameterExtractor:
         that this parameter really exists in the user request.
         """
         lower_prompt = prompt.lower()
-        quoted_values = self._extract_quoted_strings(prompt)
-        numeric_values = [match.group(0) for match in NUMBER_IN_TEXT.finditer(prompt)]
+        quoted_values = self._extract_quoted_strings(prompt)  # noqa: E501
+        numeric_values = [match.group(0)
+                          for match in NUMBER_IN_TEXT.finditer(prompt)]
 
         if parameter_type == "number":
             if function_name == "fn_add_numbers":
@@ -90,13 +92,11 @@ class ParameterExtractor:
             if function_name == "fn_reverse_string" and parameter_name == "s":
                 if quoted_values:
                     return True
-                return (
+                return (  # noqa: E501
                     re.search(
-                        r"(?i)\breverse(?:\s+the\s+string)?\s+([A-Za-z0-9_\-]+)\s*$",
+                        r"(?i)\breverse(?:\s+the\s+string)?\s+([A-Za-z0-9_\-]+)\s*$",  # noqa: E501
                         prompt,
-                    )
-                    is not None
-                )
+                    ) is not None)
 
             if function_name == "fn_substitute_string_with_regex":
                 return self._can_fallback_substitute(
@@ -116,7 +116,8 @@ class ParameterExtractor:
         function_name: str,
         parameter_name: str,
     ) -> Optional[float]:
-        values = [float(match.group(0)) for match in NUMBER_IN_TEXT.finditer(prompt)]
+        values = [float(match.group(0))  # noqa: E501
+                  for match in NUMBER_IN_TEXT.finditer(prompt)]
         if not values:
             return None
 
@@ -234,8 +235,9 @@ class ParameterExtractor:
 
             if parameter_name == "regex":
                 return r"\d+"
-
-            replacement_match = re.search(r"\bwith\s+([A-Za-z0-9_\-*]+)\s*$", prompt)
+    # noqa: E501
+            replacement_match = re.search(
+                r"\bwith\s+([A-Za-z0-9_\-*]+)\s*$", prompt)
             if parameter_name == "replacement" and replacement_match:
                 return replacement_match.group(1)
 
@@ -272,9 +274,10 @@ class ParameterExtractor:
         parameter_name: str,
         quoted_values: List[str],
     ) -> bool:
-        if "replace all numbers in" in lower_prompt:
+        if "replace all numbers in" in lower_prompt:  # noqa: E501
             source_match = DOUBLE_QUOTED_TEXT.search(prompt)
-            replacement_match = re.search(r"\bwith\s+([A-Za-z0-9_\-*]+)\s*$", prompt)
+            replacement_match = re.search(
+                r"\bwith\s+([A-Za-z0-9_\-*]+)\s*$", prompt)
 
             if parameter_name == "source_string":
                 return source_match is not None
@@ -309,11 +312,14 @@ class ParameterExtractor:
         if parameter_name == "source_string":
             return len(quoted_values) >= 3
 
-        return len(quoted_values) >= 3
+        return len(quoted_values) >= 3  # noqa: E501
+    # noqa: E501
 
     def _extract_quoted_strings(self, prompt: str) -> List[str]:
-        single = [match.group(1) for match in SINGLE_QUOTED_TEXT.finditer(prompt)]
-        double = [match.group(1) for match in DOUBLE_QUOTED_TEXT.finditer(prompt)]
+        single = [match.group(1)
+                  for match in SINGLE_QUOTED_TEXT.finditer(prompt)]
+        double = [match.group(1)
+                  for match in DOUBLE_QUOTED_TEXT.finditer(prompt)]
 
         if single and not double:
             return single

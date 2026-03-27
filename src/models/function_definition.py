@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class ParameterDefinition(BaseModel):
     """Schema for a single function parameter."""
 
-    type: str = Field(..., description="Parameter type, e.g. string, number, boolean.") # noqa
+    type: str = Field(..., description="Parameter type, e.g. string, number, boolean.")  # noqa
 
 
 class ReturnDefinition(BaseModel):

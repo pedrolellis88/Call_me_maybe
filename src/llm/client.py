@@ -1,12 +1,11 @@
 from typing import List, Sequence
 
-from llm_sdk import Small_LLM_Model
-
 
 class LLMClient:
     """Wrapper around the provided LLM SDK."""
 
     def __init__(self) -> None:
+        from llm_sdk import Small_LLM_Model
         self.model = Small_LLM_Model()
         self._encode_cache: dict[str, List[int]] = {}
 
