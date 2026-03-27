@@ -2,6 +2,7 @@ from pathlib import Path
 
 from src.file_io.reader import read_json_file
 from src.file_io.writer import write_json_file
+from src.models.function_call_result import FunctionCallResult
 from src.models.function_definition import FunctionDefinition
 from src.models.prompt_input import PromptInput
 from src.services.function_selector import FunctionSelector
@@ -21,10 +22,19 @@ def run_pipeline(
 
     selector = FunctionSelector([fn.model_dump() for fn in functions])
 
-    results = []
+    results: list[FunctionCallResult] = []
 
     for prompt in prompts:
-        result = selector.select_and_extract(prompt.prompt)
+        selection = selector.select_and_extract(prompt.prompt)
+
+        result = FunctionCallResult(
+            prompt=selection.prompt,
+            name=selection.name,
+            parameters=selection.parameters if selection.name is not None else {}, # noqa
+        )
         results.append(result)
 
-    write_json_file(Path(output_path), results)
+    write_json_file(
+        Path(output_path),
+        [result.model_dump() for result in results],
+    )

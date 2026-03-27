@@ -3,6 +3,7 @@ SHELL := /bin/sh
 UV ?= uv
 PYTHON ?= python
 MODULE ?= src
+VENV_DIR ?= /goinfre/$(USER)/call_me_maybe_venv
 
 FUNCTIONS_DEFINITION ?= data/input/functions_definition.json
 INPUT ?= data/input/function_calling_tests.json
@@ -29,7 +30,7 @@ help:
 	@printf "  lint-strict  Run flake8 + mypy --strict\n"
 	@printf "  test         Run pytest\n"
 	@printf "  clean        Remove caches and generated files\n"
-	@printf "  distclean    clean + remove .venv\n"
+	@printf "  distclean    clean + remove project .venv\n"
 
 check-uv:
 	@command -v $(UV) >/dev/null 2>&1 || { \
@@ -38,44 +39,61 @@ check-uv:
 	}
 
 install: check-uv
-	@printf "$(INFO) Syncing dependencies with uv\n"
-	@$(UV) sync
-	@printf "$(OK) Dependencies installed\n"
-
-run:
-	@echo "> Running project"
+	@printf "$(INFO) Syncing dependencies with uv into $(VENV_DIR)\n"
+	@mkdir -p $(VENV_DIR)
 	@mkdir -p /goinfre/$(USER)/.hf
 	@HF_HOME=/goinfre/$(USER)/.hf \
 	HUGGINGFACE_HUB_CACHE=/goinfre/$(USER)/.hf/hub \
 	TRANSFORMERS_CACHE=/goinfre/$(USER)/.hf/transformers \
 	XDG_CACHE_HOME=/goinfre/$(USER)/.hf \
-	uv run python -m src
+	UV_PROJECT_ENVIRONMENT=$(VENV_DIR) \
+	UV_LINK_MODE=copy \
+	$(UV) sync
+	@printf "$(OK) Dependencies installed\n"
+
+run: check-uv
+	@printf "$(INFO) Running project\n"
+	@mkdir -p /goinfre/$(USER)/.hf
+	@HF_HOME=/goinfre/$(USER)/.hf \
+	HUGGINGFACE_HUB_CACHE=/goinfre/$(USER)/.hf/hub \
+	TRANSFORMERS_CACHE=/goinfre/$(USER)/.hf/transformers \
+	XDG_CACHE_HOME=/goinfre/$(USER)/.hf \
+	UV_PROJECT_ENVIRONMENT=$(VENV_DIR) \
+	UV_LINK_MODE=copy \
+	$(UV) run $(PYTHON) -m $(MODULE)
 
 debug: check-uv
 	@printf "$(INFO) Debugging with pdb\n"
 	@mkdir -p data/output
-	@$(UV) run $(PYTHON) -m pdb -m $(MODULE) \
+	@mkdir -p /goinfre/$(USER)/.hf
+	@HF_HOME=/goinfre/$(USER)/.hf \
+	HUGGINGFACE_HUB_CACHE=/goinfre/$(USER)/.hf/hub \
+	TRANSFORMERS_CACHE=/goinfre/$(USER)/.hf/transformers \
+	XDG_CACHE_HOME=/goinfre/$(USER)/.hf \
+	UV_PROJECT_ENVIRONMENT=$(VENV_DIR) \
+	UV_LINK_MODE=copy \
+	$(UV) run $(PYTHON) -m pdb -m $(MODULE) \
 		--functions_definition $(FUNCTIONS_DEFINITION) \
 		--input $(INPUT) \
 		--output $(OUTPUT)
 
 lint: check-uv
 	@printf "$(INFO) Running flake8\n"
-	@$(UV) run flake8 src
+	@UV_PROJECT_ENVIRONMENT=$(VENV_DIR) UV_LINK_MODE=copy $(UV) run flake8 src
 	@printf "$(INFO) Running mypy\n"
-	@$(UV) run mypy src $(MYPY_FLAGS)
+	@UV_PROJECT_ENVIRONMENT=$(VENV_DIR) UV_LINK_MODE=copy $(UV) run mypy src $(MYPY_FLAGS)
 	@printf "$(OK) Lint OK\n"
 
 lint-strict: check-uv
 	@printf "$(INFO) Running flake8\n"
-	@$(UV) run flake8 src
+	@UV_PROJECT_ENVIRONMENT=$(VENV_DIR) UV_LINK_MODE=copy $(UV) run flake8 src
 	@printf "$(INFO) Running mypy --strict\n"
-	@$(UV) run mypy src --strict
+	@UV_PROJECT_ENVIRONMENT=$(VENV_DIR) UV_LINK_MODE=copy $(UV) run mypy src --strict
 	@printf "$(OK) Strict lint OK\n"
 
 test: check-uv
 	@printf "$(INFO) Running pytest\n"
-	@$(UV) run pytest
+	@UV_PROJECT_ENVIRONMENT=$(VENV_DIR) UV_LINK_MODE=copy $(UV) run pytest
 	@printf "$(OK) Tests passed\n"
 
 clean:
@@ -86,6 +104,6 @@ clean:
 	@printf "$(OK) Clean done\n"
 
 distclean: clean
-	@printf "$(INFO) Removing virtual environment\n"
+	@printf "$(INFO) Removing project-local virtual environment only\n"
 	@rm -rf .venv
 	@printf "$(OK) distclean done\n"

@@ -5,6 +5,7 @@ from src.models.function_definition import (
     ReturnDefinition,
 )
 from src.models.prompt_input import PromptInput
+from src.models.selection_result import SelectionResult
 
 __all__ = [
     "FunctionCallResult",
@@ -12,4 +13,5 @@ __all__ = [
     "ParameterDefinition",
     "ReturnDefinition",
     "PromptInput",
+    "SelectionResult",
 ]

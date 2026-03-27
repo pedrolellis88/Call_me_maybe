@@ -7,5 +7,5 @@ class FunctionCallResult(BaseModel):
     """Schema for one output item."""
 
     prompt: str
-    name: str
+    name: str | None
     parameters: Dict[str, Any]

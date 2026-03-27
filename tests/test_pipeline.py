@@ -1,4 +1,5 @@
 import src.services.pipeline as pipeline_module
+from src.models.selection_result import SelectionResult
 
 
 def make_function(
@@ -64,11 +65,11 @@ def test_run_pipeline_success(monkeypatch):
         captured_output["data"] = data
 
     FakeSelector.responses = {
-        "Add 2 and 3": {
-            "prompt": "Add 2 and 3",
-            "name": "fn_add_numbers",
-            "parameters": {"a": 2.0, "b": 3.0},
-        }
+        "Add 2 and 3": SelectionResult(
+            prompt="Add 2 and 3",
+            name="fn_add_numbers",
+            parameters={"a": 2.0, "b": 3.0},
+        )
     }
 
     monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
@@ -136,17 +137,17 @@ def test_run_pipeline_selection_error_does_not_abort(monkeypatch):
         captured_output["data"] = data
 
     FakeSelector.responses = {
-        "Add 7": {
-            "prompt": "Add 7",
-            "name": None,
-            "parameters": {},
-            "error": "Missing enough information to extract parameter 'b' for function 'fn_add_numbers'.",
-        },
-        "Greet Alice": {
-            "prompt": "Greet Alice",
-            "name": "fn_greet",
-            "parameters": {"name": "Alice"},
-        },
+        "Add 7": SelectionResult(
+            prompt="Add 7",
+            name=None,
+            parameters={},
+            error="Missing enough information to extract parameter 'b' for function 'fn_add_numbers'.",
+        ),
+        "Greet Alice": SelectionResult(
+            prompt="Greet Alice",
+            name="fn_greet",
+            parameters={"name": "Alice"},
+        ),
     }
 
     monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
@@ -160,7 +161,6 @@ def test_run_pipeline_selection_error_does_not_abort(monkeypatch):
             "prompt": "Add 7",
             "name": None,
             "parameters": {},
-            "error": "Missing enough information to extract parameter 'b' for function 'fn_add_numbers'.",
         },
         {
             "prompt": "Greet Alice",
@@ -214,17 +214,17 @@ def test_run_pipeline_error_does_not_abort_batch(monkeypatch):
         captured_output["data"] = data
 
     FakeSelector.responses = {
-        "Add 7 and maybe something": {
-            "prompt": "Add 7 and maybe something",
-            "name": None,
-            "parameters": {},
-            "error": "Missing enough information to extract parameter 'b' for function 'fn_add_numbers'.",
-        },
-        "Ping": {
-            "prompt": "Ping",
-            "name": "fn_ping",
-            "parameters": {},
-        },
+        "Add 7 and maybe something": SelectionResult(
+            prompt="Add 7 and maybe something",
+            name=None,
+            parameters={},
+            error="Missing enough information to extract parameter 'b' for function 'fn_add_numbers'.",
+        ),
+        "Ping": SelectionResult(
+            prompt="Ping",
+            name="fn_ping",
+            parameters={},
+        ),
     }
 
     monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
@@ -238,7 +238,6 @@ def test_run_pipeline_error_does_not_abort_batch(monkeypatch):
             "prompt": "Add 7 and maybe something",
             "name": None,
             "parameters": {},
-            "error": "Missing enough information to extract parameter 'b' for function 'fn_add_numbers'.",
         },
         {
             "prompt": "Ping",
@@ -248,7 +247,7 @@ def test_run_pipeline_error_does_not_abort_batch(monkeypatch):
     ]
 
 
-def test_run_pipeline_unclear_intent_returns_structured_error(monkeypatch):
+def test_run_pipeline_unclear_intent_is_kept_in_output_as_null_call(monkeypatch):
     functions_raw = [
         make_function(
             "fn_add_numbers",
@@ -282,12 +281,12 @@ def test_run_pipeline_unclear_intent_returns_structured_error(monkeypatch):
         captured_output["data"] = data
 
     FakeSelector.responses = {
-        "???": {
-            "prompt": "???",
-            "name": None,
-            "parameters": {},
-            "error": "Could not determine a valid target function from the prompt.",
-        }
+        "???": SelectionResult(
+            prompt="???",
+            name=None,
+            parameters={},
+            error="Could not determine a valid target function from the prompt.",
+        )
     }
 
     monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
@@ -301,6 +300,5 @@ def test_run_pipeline_unclear_intent_returns_structured_error(monkeypatch):
             "prompt": "???",
             "name": None,
             "parameters": {},
-            "error": "Could not determine a valid target function from the prompt.",
         }
     ]

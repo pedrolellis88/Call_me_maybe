@@ -10,7 +10,7 @@ class FakeConstrainedDecoder:
     def __init__(self, functions):
         self.functions = functions
 
-    def decode(self, prompt):
+    def generate_call(self, prompt, functions):
         if FakeConstrainedDecoder.next_exception is not None:
             exc = FakeConstrainedDecoder.next_exception
             FakeConstrainedDecoder.next_exception = None
@@ -42,7 +42,10 @@ def selector():
             "parameters": {},
         },
     ]
-    return FunctionSelector(functions=functions, decoder=FakeConstrainedDecoder(functions))
+    return FunctionSelector(
+        functions=functions,
+        decoder=FakeConstrainedDecoder(functions),
+    )
 
 
 def test_returns_valid_result_without_error_field(selector):
@@ -54,7 +57,7 @@ def test_returns_valid_result_without_error_field(selector):
         },
     }
 
-    result = selector.select_and_extract("Add 2 and 3")
+    result = selector.select_and_extract("Add 2 and 3").model_dump()
 
     assert result == {
         "prompt": "Add 2 and 3",
@@ -63,8 +66,8 @@ def test_returns_valid_result_without_error_field(selector):
             "a": 2.0,
             "b": 3.0,
         },
+        "error": None,
     }
-    assert "error" not in result
 
 
 def test_returns_structured_error_for_incomplete_prompt(selector):
@@ -72,7 +75,7 @@ def test_returns_structured_error_for_incomplete_prompt(selector):
         "Missing enough information to extract parameter 'b' for function 'fn_add_numbers'."
     )
 
-    result = selector.select_and_extract("Add 7")
+    result = selector.select_and_extract("Add 7").model_dump()
 
     assert result == {
         "prompt": "Add 7",
@@ -87,7 +90,7 @@ def test_returns_structured_error_for_prompt_without_clear_intent(selector):
         "Could not determine a valid target function from the prompt."
     )
 
-    result = selector.select_and_extract("???")
+    result = selector.select_and_extract("???").model_dump()
 
     assert result == {
         "prompt": "???",
@@ -105,18 +108,18 @@ def test_preserves_prompt_in_success_case(selector):
         },
     }
 
-    result = selector.select_and_extract("Greet Alice")
+    result = selector.select_and_extract("Greet Alice").model_dump()
 
     assert result["prompt"] == "Greet Alice"
     assert result["name"] == "fn_greet"
     assert result["parameters"] == {"name": "Alice"}
-    assert "error" not in result
+    assert result["error"] is None
 
 
 def test_preserves_prompt_in_error_case(selector):
     FakeConstrainedDecoder.next_exception = ValueError("Some extraction error")
 
-    result = selector.select_and_extract("bad prompt")
+    result = selector.select_and_extract("bad prompt").model_dump()
 
     assert result["prompt"] == "bad prompt"
     assert result["name"] is None
@@ -133,11 +136,11 @@ def test_error_field_only_exists_when_there_is_an_error(selector):
         },
     }
 
-    ok_result = selector.select_and_extract("Add 1 and 2")
-    assert "error" not in ok_result
+    ok_result = selector.select_and_extract("Add 1 and 2").model_dump()
+    assert ok_result["error"] is None
 
     FakeConstrainedDecoder.next_exception = ValueError("boom")
-    error_result = selector.select_and_extract("bad")
+    error_result = selector.select_and_extract("bad").model_dump()
 
     assert error_result["error"] == "boom"
 
@@ -148,23 +151,87 @@ def test_uses_decoder_result_even_with_empty_parameters(selector):
         "parameters": {},
     }
 
-    result = selector.select_and_extract("Ping")
+    result = selector.select_and_extract("Ping").model_dump()
 
     assert result == {
         "prompt": "Ping",
         "name": "fn_ping",
         "parameters": {},
+        "error": None,
     }
 
 
 def test_handles_generic_exception_as_structured_error(selector):
-    FakeConstrainedDecoder.next_exception = RuntimeError("Unexpected decoder failure")
+    FakeConstrainedDecoder.next_exception = RuntimeError(
+        "Unexpected decoder failure"
+    )
 
-    result = selector.select_and_extract("some prompt")
+    result = selector.select_and_extract("some prompt").model_dump()
 
     assert result == {
         "prompt": "some prompt",
         "name": None,
         "parameters": {},
         "error": "Unexpected decoder failure",
+    }
+
+
+def test_returns_structured_error_when_decoder_returns_non_dict(selector):
+    FakeConstrainedDecoder.next_result = "not a dict"
+
+    result = selector.select_and_extract("bad result").model_dump()
+
+    assert result == {
+        "prompt": "bad result",
+        "name": None,
+        "parameters": {},
+        "error": "Decoder returned a non-dict result",
+    }
+
+
+def test_returns_structured_error_when_decoder_returns_invalid_name(selector):
+    FakeConstrainedDecoder.next_result = {
+        "name": 123,
+        "parameters": {},
+    }
+
+    result = selector.select_and_extract("bad name").model_dump()
+
+    assert result == {
+        "prompt": "bad name",
+        "name": None,
+        "parameters": {},
+        "error": "Decoder returned an invalid function name",
+    }
+
+
+def test_returns_structured_error_when_decoder_returns_invalid_parameters(selector):
+    FakeConstrainedDecoder.next_result = {
+        "name": "fn_add_numbers",
+        "parameters": ["not", "a", "dict"],
+    }
+
+    result = selector.select_and_extract("bad parameters").model_dump()
+
+    assert result == {
+        "prompt": "bad parameters",
+        "name": None,
+        "parameters": {},
+        "error": "Decoder returned invalid parameters",
+    }
+
+
+def test_clears_parameters_when_name_is_none(selector):
+    FakeConstrainedDecoder.next_result = {
+        "name": None,
+        "parameters": {"unexpected": "value"},
+    }
+
+    result = selector.select_and_extract("unknown").model_dump()
+
+    assert result == {
+        "prompt": "unknown",
+        "name": None,
+        "parameters": {},
+        "error": None,
     }

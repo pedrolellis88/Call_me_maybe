@@ -1,11 +1,13 @@
-from typing import Any, Optional
+from typing import Any
+
+from src.models.selection_result import SelectionResult
 
 
 class FunctionSelector:
     def __init__(
         self,
         functions: list[dict[str, Any]],
-        decoder: Optional[Any] = None,
+        decoder: Any | None = None,
     ) -> None:
         self.functions = functions
 
@@ -16,20 +18,47 @@ class FunctionSelector:
 
             self.decoder = ConstrainedDecoder()
 
-    def select_and_extract(self, prompt: str) -> dict[str, Any]:
+    def select_and_extract(self, prompt: str) -> SelectionResult:
         try:
-            result = self.decoder.decode(prompt)
+            result = self.decoder.generate_call(prompt, self.functions)
 
-            return {
-                "prompt": prompt,
-                "name": result.get("name"),
-                "parameters": result.get("parameters", {}),
-            }
+            if not isinstance(result, dict):
+                return SelectionResult(
+                    prompt=prompt,
+                    name=None,
+                    parameters={},
+                    error="Decoder returned a non-dict result",
+                )
+
+            name = result.get("name")
+            parameters = result.get("parameters", {})
+
+            if name is not None and not isinstance(name, str):
+                return SelectionResult(
+                    prompt=prompt,
+                    name=None,
+                    parameters={},
+                    error="Decoder returned an invalid function name",
+                )
+
+            if not isinstance(parameters, dict):
+                return SelectionResult(
+                    prompt=prompt,
+                    name=None,
+                    parameters={},
+                    error="Decoder returned invalid parameters",
+                )
+
+            return SelectionResult(
+                prompt=prompt,
+                name=name,
+                parameters=parameters if name is not None else {},
+            )
 
         except Exception as exc:
-            return {
-                "prompt": prompt,
-                "name": None,
-                "parameters": {},
-                "error": str(exc),
-            }
+            return SelectionResult(
+                prompt=prompt,
+                name=None,
+                parameters={},
+                error=str(exc),
+            )
