@@ -313,7 +313,6 @@ class ParameterExtractor:
             return len(quoted_values) >= 3
 
         return len(quoted_values) >= 3  # noqa: E501
-    # noqa: E501
 
     def _extract_quoted_strings(self, prompt: str) -> List[str]:
         single = [match.group(1)

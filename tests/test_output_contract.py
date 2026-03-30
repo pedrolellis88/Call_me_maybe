@@ -1,14 +1,26 @@
+from typing import Any
+
 from src.services.function_selector import FunctionSelector
 
 
 class FakeDecoder:
-    next_result = None
-    next_exception = None
+    """Test double for decoder behavior."""
 
-    def __init__(self, functions):
+    next_result: dict[str, Any] | None = None
+    next_exception: Exception | None = None
+
+    def __init__(self, functions: list[dict[str, Any]]) -> None:
+        """Store available functions for the fake decoder."""
         self.functions = functions
 
-    def generate_call(self, prompt, functions):
+    def generate_call(
+        self,
+        prompt: str,
+        functions: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Return the prepared result or raise the prepared exception."""
+        del prompt
+        del functions
         if FakeDecoder.next_exception is not None:
             exc = FakeDecoder.next_exception
             FakeDecoder.next_exception = None
@@ -19,7 +31,8 @@ class FakeDecoder:
         return result
 
 
-def make_functions():
+def make_functions() -> list[dict[str, Any]]:
+    """Build a reusable list of test functions."""
     return [
         {
             "name": "fn_add_numbers",
@@ -37,7 +50,8 @@ def make_functions():
     ]
 
 
-def test_valid_result_contract():
+def test_valid_result_contract() -> None:
+    """Validate the success output contract."""
     selector = FunctionSelector(
         functions=make_functions(),
         decoder=FakeDecoder(make_functions()),
@@ -64,14 +78,16 @@ def test_valid_result_contract():
     }
 
 
-def test_invalid_result_contract():
+def test_invalid_result_contract() -> None:
+    """Validate the error output contract for missing data."""
     selector = FunctionSelector(
         functions=make_functions(),
         decoder=FakeDecoder(make_functions()),
     )
 
     FakeDecoder.next_exception = ValueError(
-        "Missing enough information to extract parameter 'b' for function 'fn_add_numbers'."
+        "Missing enough information to extract parameter 'b' "
+        "for function 'fn_add_numbers'."
     )
 
     result = selector.select_and_extract("Add 7").model_dump()
@@ -80,11 +96,15 @@ def test_invalid_result_contract():
         "prompt": "Add 7",
         "name": None,
         "parameters": {},
-        "error": "Missing enough information to extract parameter 'b' for function 'fn_add_numbers'.",
+        "error": (
+            "Missing enough information to extract parameter 'b' "
+            "for function 'fn_add_numbers'."
+        ),
     }
 
 
-def test_unclear_intent_result_contract():
+def test_unclear_intent_result_contract() -> None:
+    """Validate the error output contract for unclear intent."""
     selector = FunctionSelector(
         functions=make_functions(),
         decoder=FakeDecoder(make_functions()),
@@ -100,5 +120,8 @@ def test_unclear_intent_result_contract():
         "prompt": "???",
         "name": None,
         "parameters": {},
-        "error": "Could not determine a valid target function from the prompt.",
+        "error": (
+            "Could not determine a valid target function "
+            "from the prompt."
+        ),
     }

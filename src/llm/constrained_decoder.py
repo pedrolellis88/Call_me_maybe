@@ -458,8 +458,8 @@ class ConstrainedDecoder:
             return float(last_valid_number)
 
         raise ValueError(
-            f"Failed to decode a valid JSON number. Got: {
-                built!r}")
+            f"Failed to decode a valid JSON number. Got: {built!r}"
+        )
 
     def _allowed_tokens_for_number(self, current_text: str) -> List[int]:
         cached = self._number_allowed_cache.get(current_text)

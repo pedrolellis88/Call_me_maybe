@@ -4,15 +4,15 @@ from src.services.parameter_extractor import ParameterExtractor
 
 
 @pytest.fixture
-def extractor():
+def extractor() -> ParameterExtractor:
+    """Create a parameter extractor for tests."""
     return ParameterExtractor()
 
 
-# ----------------------------
-# can_fallback_to_llm
-# ----------------------------
-
-def test_can_fallback_add_number_false_with_vague_placeholder(extractor):
+def test_can_fallback_add_number_false_with_vague_placeholder(
+    extractor: ParameterExtractor,
+) -> None:
+    """Reject vague placeholders for numeric extraction."""
     assert extractor.can_fallback_to_llm(
         "Add 10 and something",
         "fn_add_numbers",
@@ -21,7 +21,10 @@ def test_can_fallback_add_number_false_with_vague_placeholder(extractor):
     ) is False
 
 
-def test_can_fallback_add_number_false_without_function_intent(extractor):
+def test_can_fallback_add_number_false_without_function_intent(
+    extractor: ParameterExtractor,
+) -> None:
+    """Reject fallback when prompt lacks function intent."""
     assert extractor.can_fallback_to_llm(
         "hello there",
         "fn_add_numbers",
@@ -30,7 +33,10 @@ def test_can_fallback_add_number_false_without_function_intent(extractor):
     ) is False
 
 
-def test_can_fallback_greet_name_false_for_empty_prompt(extractor):
+def test_can_fallback_greet_name_false_for_empty_prompt(
+    extractor: ParameterExtractor,
+) -> None:
+    """Reject fallback for an empty greeting prompt."""
     assert extractor.can_fallback_to_llm(
         "",
         "fn_greet",
@@ -39,7 +45,10 @@ def test_can_fallback_greet_name_false_for_empty_prompt(extractor):
     ) is False
 
 
-def test_can_fallback_greet_name_false_for_greet_me(extractor):
+def test_can_fallback_greet_name_false_for_greet_me(
+    extractor: ParameterExtractor,
+) -> None:
+    """Reject fallback for self-referential greeting."""
     assert extractor.can_fallback_to_llm(
         "greet me",
         "fn_greet",
@@ -48,7 +57,10 @@ def test_can_fallback_greet_name_false_for_greet_me(extractor):
     ) is False
 
 
-def test_can_fallback_greet_name_false_for_greet_please(extractor):
+def test_can_fallback_greet_name_false_for_greet_please(
+    extractor: ParameterExtractor,
+) -> None:
+    """Reject fallback for incomplete polite greeting."""
     assert extractor.can_fallback_to_llm(
         "greet please",
         "fn_greet",
@@ -57,11 +69,10 @@ def test_can_fallback_greet_name_false_for_greet_please(extractor):
     ) is False
 
 
-# ----------------------------
-# extract_parameter - valid
-# ----------------------------
-
-def test_extract_add_parameter_a_success(extractor):
+def test_extract_add_parameter_a_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract the first numeric add parameter."""
     value = extractor.extract_parameter(
         "Add 2 and 3",
         "fn_add_numbers",
@@ -71,7 +82,10 @@ def test_extract_add_parameter_a_success(extractor):
     assert value == 2.0
 
 
-def test_extract_add_parameter_b_success(extractor):
+def test_extract_add_parameter_b_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract the second numeric add parameter."""
     value = extractor.extract_parameter(
         "Add 2 and 3",
         "fn_add_numbers",
@@ -81,7 +95,10 @@ def test_extract_add_parameter_b_success(extractor):
     assert value == 3.0
 
 
-def test_extract_add_negative_and_decimal(extractor):
+def test_extract_add_negative_and_decimal(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract negative and decimal numeric values."""
     value_a = extractor.extract_parameter(
         "Add -2.5 and 3",
         "fn_add_numbers",
@@ -99,7 +116,10 @@ def test_extract_add_negative_and_decimal(extractor):
     assert value_b == 3.0
 
 
-def test_extract_greet_name_success(extractor):
+def test_extract_greet_name_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract a greeting target name."""
     value = extractor.extract_parameter(
         "Greet Alice",
         "fn_greet",
@@ -109,7 +129,10 @@ def test_extract_greet_name_success(extractor):
     assert value == "Alice"
 
 
-def test_extract_reverse_text_with_quotes_success(extractor):
+def test_extract_reverse_text_with_quotes_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract quoted text for reversal."""
     value = extractor.extract_parameter(
         'Reverse "hello world"',
         "fn_reverse_string",
@@ -119,7 +142,10 @@ def test_extract_reverse_text_with_quotes_success(extractor):
     assert value == "hello world"
 
 
-def test_extract_sqrt_value_success(extractor):
+def test_extract_sqrt_value_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract a numeric square root argument."""
     value = extractor.extract_parameter(
         "sqrt 2.25",
         "fn_square_root",
@@ -129,11 +155,10 @@ def test_extract_sqrt_value_success(extractor):
     assert value == 2.25
 
 
-# ----------------------------
-# extract_parameter - incomplete / blocked
-# ----------------------------
-
-def test_extract_add_missing_b_returns_none_or_raises(extractor):
+def test_extract_add_missing_b_returns_none_or_raises(
+    extractor: ParameterExtractor,
+) -> None:
+    """Handle missing second add parameter."""
     try:
         value = extractor.extract_parameter(
             "Add 7",
@@ -146,7 +171,10 @@ def test_extract_add_missing_b_returns_none_or_raises(extractor):
         assert "Missing enough information" in str(exc)
 
 
-def test_extract_greet_me_returns_none_or_raises(extractor):
+def test_extract_greet_me_returns_none_or_raises(
+    extractor: ParameterExtractor,
+) -> None:
+    """Handle self-referential greeting input."""
     try:
         value = extractor.extract_parameter(
             "greet me",
@@ -159,7 +187,10 @@ def test_extract_greet_me_returns_none_or_raises(extractor):
         pass
 
 
-def test_extract_greet_please_returns_none_or_raises(extractor):
+def test_extract_greet_please_returns_none_or_raises(
+    extractor: ParameterExtractor,
+) -> None:
+    """Handle incomplete polite greeting input."""
     try:
         value = extractor.extract_parameter(
             "greet please",
@@ -172,7 +203,10 @@ def test_extract_greet_please_returns_none_or_raises(extractor):
         pass
 
 
-def test_extract_reverse_without_text_returns_none_or_raises(extractor):
+def test_extract_reverse_without_text_returns_none_or_raises(
+    extractor: ParameterExtractor,
+) -> None:
+    """Handle reverse calls without text."""
     try:
         value = extractor.extract_parameter(
             "reverse",
@@ -185,7 +219,10 @@ def test_extract_reverse_without_text_returns_none_or_raises(extractor):
         pass
 
 
-def test_extract_sqrt_without_value_returns_none_or_raises(extractor):
+def test_extract_sqrt_without_value_returns_none_or_raises(
+    extractor: ParameterExtractor,
+) -> None:
+    """Handle square root calls without a value."""
     try:
         value = extractor.extract_parameter(
             "sqrt",
@@ -198,11 +235,10 @@ def test_extract_sqrt_without_value_returns_none_or_raises(extractor):
         pass
 
 
-# ----------------------------
-# boolean safety
-# ----------------------------
-
-def test_boolean_does_not_match_true_inside_structure(extractor):
+def test_boolean_does_not_match_true_inside_structure(
+    extractor: ParameterExtractor,
+) -> None:
+    """Avoid matching boolean words inside other words."""
     value = extractor.extract_parameter(
         "structure",
         "fn_set_flag",
@@ -212,7 +248,10 @@ def test_boolean_does_not_match_true_inside_structure(extractor):
     assert value is None
 
 
-def test_boolean_true_explicit_match(extractor):
+def test_boolean_true_explicit_match(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract an explicit true boolean value."""
     value = extractor.extract_parameter(
         "Set enabled to true",
         "fn_set_flag",
@@ -222,7 +261,10 @@ def test_boolean_true_explicit_match(extractor):
     assert value is True
 
 
-def test_boolean_false_explicit_match(extractor):
+def test_boolean_false_explicit_match(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract an explicit false boolean value."""
     value = extractor.extract_parameter(
         "Set enabled to false",
         "fn_set_flag",

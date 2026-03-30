@@ -1,14 +1,19 @@
+from typing import Any
+
+import pytest
+
 import src.services.pipeline as pipeline_module
 from src.models.selection_result import SelectionResult
 
 
 def make_function(
-    name,
-    description,
-    parameters,
-    returns_type="string",
-    returns_description="Return value",
-):
+    name: str,
+    description: str,
+    parameters: dict[str, Any],
+    returns_type: str = "string",
+    returns_description: str = "Return value",
+) -> dict[str, Any]:
+    """Build a function definition for tests."""
     return {
         "name": name,
         "description": description,
@@ -21,17 +26,22 @@ def make_function(
 
 
 class FakeSelector:
-    responses = {}
+    """Provide canned selection results for pipeline tests."""
 
-    def __init__(self, functions):
+    responses: dict[str, SelectionResult] = {}
+
+    def __init__(self, functions: list[dict[str, Any]]) -> None:
+        """Store available functions for the fake selector."""
         self.functions = functions
 
-    def select_and_extract(self, prompt):
+    def select_and_extract(self, prompt: str) -> SelectionResult:
+        """Return the predefined selection result for a prompt."""
         return self.responses[prompt]
 
 
-def test_run_pipeline_success(monkeypatch):
-    functions_raw = [
+def test_run_pipeline_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Write a successful pipeline result to output."""
+    functions_raw: list[dict[str, Any]] = [
         make_function(
             "fn_add_numbers",
             "Add two numbers",
@@ -51,16 +61,18 @@ def test_run_pipeline_success(monkeypatch):
             returns_description="Sum of the two numbers",
         )
     ]
-    prompts_raw = [{"prompt": "Add 2 and 3"}]
+    prompts_raw: list[dict[str, str]] = [{"prompt": "Add 2 and 3"}]
 
-    captured_output = {}
+    captured_output: dict[str, Any] = {}
 
-    def fake_read_json_file(path):
+    def fake_read_json_file(path: object) -> list[dict[str, Any]]:
+        """Return fake input data based on the requested path."""
         if "functions" in str(path):
             return functions_raw
         return prompts_raw
 
-    def fake_write_json_file(path, data):
+    def fake_write_json_file(path: object, data: Any) -> None:
+        """Capture written output data for assertions."""
         captured_output["path"] = path
         captured_output["data"] = data
 
@@ -73,7 +85,7 @@ def test_run_pipeline_success(monkeypatch):
     }
 
     monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
-    monkeypatch.setattr(pipeline_module, "write_json_file", fake_write_json_file)
+    monkeypatch.setattr(pipeline_module, "write_json_file", fake_write_json_file)  # noqa  
     monkeypatch.setattr(pipeline_module, "FunctionSelector", FakeSelector)
 
     pipeline_module.run_pipeline("functions.json", "input.json", "output.json")
@@ -87,8 +99,11 @@ def test_run_pipeline_success(monkeypatch):
     ]
 
 
-def test_run_pipeline_selection_error_does_not_abort(monkeypatch):
-    functions_raw = [
+def test_run_pipeline_selection_error_does_not_abort(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep processing prompts after a selection error."""
+    functions_raw: list[dict[str, Any]] = [
         make_function(
             "fn_add_numbers",
             "Add two numbers",
@@ -121,19 +136,22 @@ def test_run_pipeline_selection_error_does_not_abort(monkeypatch):
             returns_description="Greeting message",
         ),
     ]
-    prompts_raw = [
+    prompts_raw: list[dict[str, str]] = [
         {"prompt": "Add 7"},
         {"prompt": "Greet Alice"},
     ]
 
-    captured_output = {}
+    captured_output: dict[str, Any] = {}
 
-    def fake_read_json_file(path):
+    def fake_read_json_file(path: object) -> list[dict[str, Any]]:
+        """Return fake input data based on the requested path."""
         if "functions" in str(path):
             return functions_raw
         return prompts_raw
 
-    def fake_write_json_file(path, data):
+    def fake_write_json_file(path: object, data: Any) -> None:
+        """Capture written output data for assertions."""
+        del path
         captured_output["data"] = data
 
     FakeSelector.responses = {
@@ -141,7 +159,10 @@ def test_run_pipeline_selection_error_does_not_abort(monkeypatch):
             prompt="Add 7",
             name=None,
             parameters={},
-            error="Missing enough information to extract parameter 'b' for function 'fn_add_numbers'.",
+            error=(
+                "Missing enough information to extract parameter 'b' "
+                "for function 'fn_add_numbers'."
+            ),
         ),
         "Greet Alice": SelectionResult(
             prompt="Greet Alice",
@@ -151,7 +172,7 @@ def test_run_pipeline_selection_error_does_not_abort(monkeypatch):
     }
 
     monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
-    monkeypatch.setattr(pipeline_module, "write_json_file", fake_write_json_file)
+    monkeypatch.setattr(pipeline_module, "write_json_file", fake_write_json_file)  # noqa  
     monkeypatch.setattr(pipeline_module, "FunctionSelector", FakeSelector)
 
     pipeline_module.run_pipeline("functions.json", "input.json", "output.json")
@@ -170,8 +191,11 @@ def test_run_pipeline_selection_error_does_not_abort(monkeypatch):
     ]
 
 
-def test_run_pipeline_error_does_not_abort_batch(monkeypatch):
-    functions_raw = [
+def test_run_pipeline_error_does_not_abort_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep processing the batch after an extraction error."""
+    functions_raw: list[dict[str, Any]] = [
         make_function(
             "fn_add_numbers",
             "Add two numbers",
@@ -198,19 +222,22 @@ def test_run_pipeline_error_does_not_abort_batch(monkeypatch):
             returns_description="Ping response",
         ),
     ]
-    prompts_raw = [
+    prompts_raw: list[dict[str, str]] = [
         {"prompt": "Add 7 and maybe something"},
         {"prompt": "Ping"},
     ]
 
-    captured_output = {}
+    captured_output: dict[str, Any] = {}
 
-    def fake_read_json_file(path):
+    def fake_read_json_file(path: object) -> list[dict[str, Any]]:
+        """Return fake input data based on the requested path."""
         if "functions" in str(path):
             return functions_raw
         return prompts_raw
 
-    def fake_write_json_file(path, data):
+    def fake_write_json_file(path: object, data: Any) -> None:
+        """Capture written output data for assertions."""
+        del path
         captured_output["data"] = data
 
     FakeSelector.responses = {
@@ -218,7 +245,10 @@ def test_run_pipeline_error_does_not_abort_batch(monkeypatch):
             prompt="Add 7 and maybe something",
             name=None,
             parameters={},
-            error="Missing enough information to extract parameter 'b' for function 'fn_add_numbers'.",
+            error=(
+                "Missing enough information to extract parameter 'b' "
+                "for function 'fn_add_numbers'."
+            ),
         ),
         "Ping": SelectionResult(
             prompt="Ping",
@@ -228,7 +258,7 @@ def test_run_pipeline_error_does_not_abort_batch(monkeypatch):
     }
 
     monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
-    monkeypatch.setattr(pipeline_module, "write_json_file", fake_write_json_file)
+    monkeypatch.setattr(pipeline_module, "write_json_file", fake_write_json_file)  # noqa  
     monkeypatch.setattr(pipeline_module, "FunctionSelector", FakeSelector)
 
     pipeline_module.run_pipeline("functions.json", "input.json", "output.json")
@@ -247,8 +277,11 @@ def test_run_pipeline_error_does_not_abort_batch(monkeypatch):
     ]
 
 
-def test_run_pipeline_unclear_intent_is_kept_in_output_as_null_call(monkeypatch):
-    functions_raw = [
+def test_run_pipeline_unclear_intent_is_kept_in_output_as_null_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep unclear intent results as null calls in output."""
+    functions_raw: list[dict[str, Any]] = [
         make_function(
             "fn_add_numbers",
             "Add two numbers",
@@ -268,16 +301,19 @@ def test_run_pipeline_unclear_intent_is_kept_in_output_as_null_call(monkeypatch)
             returns_description="Sum of the two numbers",
         )
     ]
-    prompts_raw = [{"prompt": "???"}]
+    prompts_raw: list[dict[str, str]] = [{"prompt": "???"}]
 
-    captured_output = {}
+    captured_output: dict[str, Any] = {}
 
-    def fake_read_json_file(path):
+    def fake_read_json_file(path: object) -> list[dict[str, Any]]:
+        """Return fake input data based on the requested path."""
         if "functions" in str(path):
             return functions_raw
         return prompts_raw
 
-    def fake_write_json_file(path, data):
+    def fake_write_json_file(path: object, data: Any) -> None:
+        """Capture written output data for assertions."""
+        del path
         captured_output["data"] = data
 
     FakeSelector.responses = {
@@ -285,12 +321,15 @@ def test_run_pipeline_unclear_intent_is_kept_in_output_as_null_call(monkeypatch)
             prompt="???",
             name=None,
             parameters={},
-            error="Could not determine a valid target function from the prompt.",
+            error=(
+                "Could not determine a valid target function "
+                "from the prompt."
+            ),
         )
     }
 
     monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
-    monkeypatch.setattr(pipeline_module, "write_json_file", fake_write_json_file)
+    monkeypatch.setattr(pipeline_module, "write_json_file", fake_write_json_file)  # noqa  
     monkeypatch.setattr(pipeline_module, "FunctionSelector", FakeSelector)
 
     pipeline_module.run_pipeline("functions.json", "input.json", "output.json")

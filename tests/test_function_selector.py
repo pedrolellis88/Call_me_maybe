@@ -1,16 +1,28 @@
 import pytest
 
+from typing import Any
+
 from src.services.function_selector import FunctionSelector
 
 
 class FakeConstrainedDecoder:
-    next_result = None
-    next_exception = None
+    """Test double for constrained decoder behavior."""
 
-    def __init__(self, functions):
+    next_result: dict[str, Any] | str | None = None
+    next_exception: Exception | None = None
+
+    def __init__(self, functions: list[dict[str, Any]]) -> None:
+        """Store available functions for the fake decoder."""
         self.functions = functions
 
-    def generate_call(self, prompt, functions):
+    def generate_call(
+        self,
+        prompt: str,
+        functions: list[dict[str, Any]],
+    ) -> dict[str, Any] | str | None:
+        """Return the prepared fake result or raise the prepared error."""
+        del prompt
+        del functions
         if FakeConstrainedDecoder.next_exception is not None:
             exc = FakeConstrainedDecoder.next_exception
             FakeConstrainedDecoder.next_exception = None
@@ -22,8 +34,9 @@ class FakeConstrainedDecoder:
 
 
 @pytest.fixture
-def selector():
-    functions = [
+def selector() -> FunctionSelector:
+    """Build a selector configured with a fake decoder."""
+    functions: list[dict[str, Any]] = [
         {
             "name": "fn_add_numbers",
             "parameters": {
@@ -48,7 +61,10 @@ def selector():
     )
 
 
-def test_returns_valid_result_without_error_field(selector):
+def test_returns_valid_result_without_error_field(
+    selector: FunctionSelector,
+) -> None:
+    """Return a successful structured result."""
     FakeConstrainedDecoder.next_result = {
         "name": "fn_add_numbers",
         "parameters": {
@@ -70,9 +86,13 @@ def test_returns_valid_result_without_error_field(selector):
     }
 
 
-def test_returns_structured_error_for_incomplete_prompt(selector):
+def test_returns_structured_error_for_incomplete_prompt(
+    selector: FunctionSelector,
+) -> None:
+    """Return a structured error for missing parameters."""
     FakeConstrainedDecoder.next_exception = ValueError(
-        "Missing enough information to extract parameter 'b' for function 'fn_add_numbers'."
+        "Missing enough information to extract parameter 'b' "
+        "for function 'fn_add_numbers'."
     )
 
     result = selector.select_and_extract("Add 7").model_dump()
@@ -81,11 +101,17 @@ def test_returns_structured_error_for_incomplete_prompt(selector):
         "prompt": "Add 7",
         "name": None,
         "parameters": {},
-        "error": "Missing enough information to extract parameter 'b' for function 'fn_add_numbers'.",
+        "error": (
+            "Missing enough information to extract parameter 'b' "
+            "for function 'fn_add_numbers'."
+        ),
     }
 
 
-def test_returns_structured_error_for_prompt_without_clear_intent(selector):
+def test_returns_structured_error_for_prompt_without_clear_intent(
+    selector: FunctionSelector,
+) -> None:
+    """Return a structured error for unclear intent."""
     FakeConstrainedDecoder.next_exception = ValueError(
         "Could not determine a valid target function from the prompt."
     )
@@ -96,11 +122,14 @@ def test_returns_structured_error_for_prompt_without_clear_intent(selector):
         "prompt": "???",
         "name": None,
         "parameters": {},
-        "error": "Could not determine a valid target function from the prompt.",
+        "error": "Could not determine a valid target function from the prompt.",  # noqa  
     }
 
 
-def test_preserves_prompt_in_success_case(selector):
+def test_preserves_prompt_in_success_case(
+    selector: FunctionSelector,
+) -> None:
+    """Keep the original prompt on success."""
     FakeConstrainedDecoder.next_result = {
         "name": "fn_greet",
         "parameters": {
@@ -116,7 +145,10 @@ def test_preserves_prompt_in_success_case(selector):
     assert result["error"] is None
 
 
-def test_preserves_prompt_in_error_case(selector):
+def test_preserves_prompt_in_error_case(
+    selector: FunctionSelector,
+) -> None:
+    """Keep the original prompt on failure."""
     FakeConstrainedDecoder.next_exception = ValueError("Some extraction error")
 
     result = selector.select_and_extract("bad prompt").model_dump()
@@ -127,7 +159,10 @@ def test_preserves_prompt_in_error_case(selector):
     assert result["error"] == "Some extraction error"
 
 
-def test_error_field_only_exists_when_there_is_an_error(selector):
+def test_error_field_only_exists_when_there_is_an_error(
+    selector: FunctionSelector,
+) -> None:
+    """Set the error field on failures."""
     FakeConstrainedDecoder.next_result = {
         "name": "fn_add_numbers",
         "parameters": {
@@ -145,7 +180,10 @@ def test_error_field_only_exists_when_there_is_an_error(selector):
     assert error_result["error"] == "boom"
 
 
-def test_uses_decoder_result_even_with_empty_parameters(selector):
+def test_uses_decoder_result_even_with_empty_parameters(
+    selector: FunctionSelector,
+) -> None:
+    """Accept valid calls with no parameters."""
     FakeConstrainedDecoder.next_result = {
         "name": "fn_ping",
         "parameters": {},
@@ -161,7 +199,10 @@ def test_uses_decoder_result_even_with_empty_parameters(selector):
     }
 
 
-def test_handles_generic_exception_as_structured_error(selector):
+def test_handles_generic_exception_as_structured_error(
+    selector: FunctionSelector,
+) -> None:
+    """Convert generic exceptions into structured errors."""
     FakeConstrainedDecoder.next_exception = RuntimeError(
         "Unexpected decoder failure"
     )
@@ -176,7 +217,10 @@ def test_handles_generic_exception_as_structured_error(selector):
     }
 
 
-def test_returns_structured_error_when_decoder_returns_non_dict(selector):
+def test_returns_structured_error_when_decoder_returns_non_dict(
+    selector: FunctionSelector,
+) -> None:
+    """Reject non-dict decoder results."""
     FakeConstrainedDecoder.next_result = "not a dict"
 
     result = selector.select_and_extract("bad result").model_dump()
@@ -189,7 +233,10 @@ def test_returns_structured_error_when_decoder_returns_non_dict(selector):
     }
 
 
-def test_returns_structured_error_when_decoder_returns_invalid_name(selector):
+def test_returns_structured_error_when_decoder_returns_invalid_name(
+    selector: FunctionSelector,
+) -> None:
+    """Reject decoder results with invalid function names."""
     FakeConstrainedDecoder.next_result = {
         "name": 123,
         "parameters": {},
@@ -205,7 +252,10 @@ def test_returns_structured_error_when_decoder_returns_invalid_name(selector):
     }
 
 
-def test_returns_structured_error_when_decoder_returns_invalid_parameters(selector):
+def test_returns_structured_error_when_decoder_returns_invalid_parameters(
+    selector: FunctionSelector,
+) -> None:
+    """Reject decoder results with invalid parameters."""
     FakeConstrainedDecoder.next_result = {
         "name": "fn_add_numbers",
         "parameters": ["not", "a", "dict"],
@@ -221,7 +271,10 @@ def test_returns_structured_error_when_decoder_returns_invalid_parameters(select
     }
 
 
-def test_clears_parameters_when_name_is_none(selector):
+def test_clears_parameters_when_name_is_none(
+    selector: FunctionSelector,
+) -> None:
+    """Clear parameters when no function name is returned."""
     FakeConstrainedDecoder.next_result = {
         "name": None,
         "parameters": {"unexpected": "value"},
