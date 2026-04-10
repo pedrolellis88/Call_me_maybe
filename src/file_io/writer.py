@@ -9,8 +9,15 @@ def write_json_file(path: Path, data: Any) -> None:
     """Write JSON data to disk."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
+
         with path.open("w", encoding="utf-8") as file:
             json.dump(data, file, ensure_ascii=False, indent=2)
+
+    except (TypeError, ValueError) as exc:
+        raise OutputFileError(
+            f"Could not serialize output data to JSON for file {path}: {exc}"
+        ) from exc
     except OSError as exc:
-        message = f"Could not write output file {path}: {exc}"
-        raise OutputFileError(message) from exc
+        raise OutputFileError(
+            f"Could not write output file {path}: {exc}"
+        ) from exc

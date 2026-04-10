@@ -21,6 +21,7 @@ class FakeDecoder:
         """Return the prepared result or raise the prepared exception."""
         del prompt
         del functions
+
         if FakeDecoder.next_exception is not None:
             exc = FakeDecoder.next_exception
             FakeDecoder.next_exception = None
@@ -37,29 +38,29 @@ def make_functions() -> list[dict[str, Any]]:
         {
             "name": "fn_add_numbers",
             "parameters": {
-                "a": "number",
-                "b": "number",
+                "a": {"type": "number"},
+                "b": {"type": "number"},
             },
         },
         {
             "name": "fn_greet",
             "parameters": {
-                "name": "string",
+                "name": {"type": "string"},
             },
         },
     ]
 
 
-def test_valid_result_contract() -> None:
-    """Validate the success output contract."""
+def test_selector_normalizes_success_result() -> None:
+    """Validate selector normalization for a successful decoder result."""
     selector = FunctionSelector(
         functions=make_functions(),
         decoder=FakeDecoder(make_functions()),
     )
 
     FakeDecoder.next_result = {
-        "name": "fn_add_numbers",
-        "parameters": {
+        "fn_name": "fn_add_numbers",
+        "args": {
             "a": 2.0,
             "b": 3.0,
         },
@@ -78,8 +79,8 @@ def test_valid_result_contract() -> None:
     }
 
 
-def test_invalid_result_contract() -> None:
-    """Validate the error output contract for missing data."""
+def test_selector_returns_structured_error_for_missing_data() -> None:
+    """Validate selector error handling for missing data."""
     selector = FunctionSelector(
         functions=make_functions(),
         decoder=FakeDecoder(make_functions()),
@@ -103,8 +104,8 @@ def test_invalid_result_contract() -> None:
     }
 
 
-def test_unclear_intent_result_contract() -> None:
-    """Validate the error output contract for unclear intent."""
+def test_selector_returns_structured_error_for_unclear_intent() -> None:
+    """Validate selector error handling for unclear intent."""
     selector = FunctionSelector(
         functions=make_functions(),
         decoder=FakeDecoder(make_functions()),

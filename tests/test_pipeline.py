@@ -44,16 +44,14 @@ def test_run_pipeline_success(monkeypatch: pytest.MonkeyPatch) -> None:
     functions_raw: list[dict[str, Any]] = [
         make_function(
             "fn_add_numbers",
-            "Add two numbers",
+            "Add two numbers together and return their sum.",
             {
                 "a": {
                     "type": "number",
-                    "required": True,
                     "description": "First number",
                 },
                 "b": {
                     "type": "number",
-                    "required": True,
                     "description": "Second number",
                 },
             },
@@ -61,7 +59,9 @@ def test_run_pipeline_success(monkeypatch: pytest.MonkeyPatch) -> None:
             returns_description="Sum of the two numbers",
         )
     ]
-    prompts_raw: list[dict[str, str]] = [{"prompt": "Add 2 and 3"}]
+    prompts_raw: list[dict[str, str]] = [
+        {"prompt": "What is the sum of 2 and 3?"}
+    ]
 
     captured_output: dict[str, Any] = {}
 
@@ -77,223 +77,47 @@ def test_run_pipeline_success(monkeypatch: pytest.MonkeyPatch) -> None:
         captured_output["data"] = data
 
     FakeSelector.responses = {
-        "Add 2 and 3": SelectionResult(
-            prompt="Add 2 and 3",
+        "What is the sum of 2 and 3?": SelectionResult(
+            prompt="What is the sum of 2 and 3?",
             name="fn_add_numbers",
             parameters={"a": 2.0, "b": 3.0},
         )
     }
 
     monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
-    monkeypatch.setattr(pipeline_module, "write_json_file", fake_write_json_file)  # noqa  
+    monkeypatch.setattr(
+        pipeline_module,
+        "write_json_file",
+        fake_write_json_file,
+    )
     monkeypatch.setattr(pipeline_module, "FunctionSelector", FakeSelector)
 
     pipeline_module.run_pipeline("functions.json", "input.json", "output.json")
 
     assert captured_output["data"] == [
         {
-            "prompt": "Add 2 and 3",
-            "name": "fn_add_numbers",
-            "parameters": {"a": 2.0, "b": 3.0},
+            "prompt": "What is the sum of 2 and 3?",
+            "fn_name": "fn_add_numbers",
+            "args": {"a": 2.0, "b": 3.0},
         }
     ]
 
 
-def test_run_pipeline_selection_error_does_not_abort(
+def test_run_pipeline_keeps_null_call_in_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Keep processing prompts after a selection error."""
+    """Keep prompts with no valid function as null calls in output."""
     functions_raw: list[dict[str, Any]] = [
         make_function(
             "fn_add_numbers",
-            "Add two numbers",
+            "Add two numbers together and return their sum.",
             {
                 "a": {
                     "type": "number",
-                    "required": True,
                     "description": "First number",
                 },
                 "b": {
                     "type": "number",
-                    "required": True,
-                    "description": "Second number",
-                },
-            },
-            returns_type="number",
-            returns_description="Sum of the two numbers",
-        ),
-        make_function(
-            "fn_greet",
-            "Greet someone",
-            {
-                "name": {
-                    "type": "string",
-                    "required": True,
-                    "description": "Name of the person",
-                },
-            },
-            returns_type="string",
-            returns_description="Greeting message",
-        ),
-    ]
-    prompts_raw: list[dict[str, str]] = [
-        {"prompt": "Add 7"},
-        {"prompt": "Greet Alice"},
-    ]
-
-    captured_output: dict[str, Any] = {}
-
-    def fake_read_json_file(path: object) -> list[dict[str, Any]]:
-        """Return fake input data based on the requested path."""
-        if "functions" in str(path):
-            return functions_raw
-        return prompts_raw
-
-    def fake_write_json_file(path: object, data: Any) -> None:
-        """Capture written output data for assertions."""
-        del path
-        captured_output["data"] = data
-
-    FakeSelector.responses = {
-        "Add 7": SelectionResult(
-            prompt="Add 7",
-            name=None,
-            parameters={},
-            error=(
-                "Missing enough information to extract parameter 'b' "
-                "for function 'fn_add_numbers'."
-            ),
-        ),
-        "Greet Alice": SelectionResult(
-            prompt="Greet Alice",
-            name="fn_greet",
-            parameters={"name": "Alice"},
-        ),
-    }
-
-    monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
-    monkeypatch.setattr(pipeline_module, "write_json_file", fake_write_json_file)  # noqa  
-    monkeypatch.setattr(pipeline_module, "FunctionSelector", FakeSelector)
-
-    pipeline_module.run_pipeline("functions.json", "input.json", "output.json")
-
-    assert captured_output["data"] == [
-        {
-            "prompt": "Add 7",
-            "name": None,
-            "parameters": {},
-        },
-        {
-            "prompt": "Greet Alice",
-            "name": "fn_greet",
-            "parameters": {"name": "Alice"},
-        },
-    ]
-
-
-def test_run_pipeline_error_does_not_abort_batch(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Keep processing the batch after an extraction error."""
-    functions_raw: list[dict[str, Any]] = [
-        make_function(
-            "fn_add_numbers",
-            "Add two numbers",
-            {
-                "a": {
-                    "type": "number",
-                    "required": True,
-                    "description": "First number",
-                },
-                "b": {
-                    "type": "number",
-                    "required": True,
-                    "description": "Second number",
-                },
-            },
-            returns_type="number",
-            returns_description="Sum of the two numbers",
-        ),
-        make_function(
-            "fn_ping",
-            "Ping",
-            {},
-            returns_type="string",
-            returns_description="Ping response",
-        ),
-    ]
-    prompts_raw: list[dict[str, str]] = [
-        {"prompt": "Add 7 and maybe something"},
-        {"prompt": "Ping"},
-    ]
-
-    captured_output: dict[str, Any] = {}
-
-    def fake_read_json_file(path: object) -> list[dict[str, Any]]:
-        """Return fake input data based on the requested path."""
-        if "functions" in str(path):
-            return functions_raw
-        return prompts_raw
-
-    def fake_write_json_file(path: object, data: Any) -> None:
-        """Capture written output data for assertions."""
-        del path
-        captured_output["data"] = data
-
-    FakeSelector.responses = {
-        "Add 7 and maybe something": SelectionResult(
-            prompt="Add 7 and maybe something",
-            name=None,
-            parameters={},
-            error=(
-                "Missing enough information to extract parameter 'b' "
-                "for function 'fn_add_numbers'."
-            ),
-        ),
-        "Ping": SelectionResult(
-            prompt="Ping",
-            name="fn_ping",
-            parameters={},
-        ),
-    }
-
-    monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
-    monkeypatch.setattr(pipeline_module, "write_json_file", fake_write_json_file)  # noqa  
-    monkeypatch.setattr(pipeline_module, "FunctionSelector", FakeSelector)
-
-    pipeline_module.run_pipeline("functions.json", "input.json", "output.json")
-
-    assert captured_output["data"] == [
-        {
-            "prompt": "Add 7 and maybe something",
-            "name": None,
-            "parameters": {},
-        },
-        {
-            "prompt": "Ping",
-            "name": "fn_ping",
-            "parameters": {},
-        },
-    ]
-
-
-def test_run_pipeline_unclear_intent_is_kept_in_output_as_null_call(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Keep unclear intent results as null calls in output."""
-    functions_raw: list[dict[str, Any]] = [
-        make_function(
-            "fn_add_numbers",
-            "Add two numbers",
-            {
-                "a": {
-                    "type": "number",
-                    "required": True,
-                    "description": "First number",
-                },
-                "b": {
-                    "type": "number",
-                    "required": True,
                     "description": "Second number",
                 },
             },
@@ -329,7 +153,11 @@ def test_run_pipeline_unclear_intent_is_kept_in_output_as_null_call(
     }
 
     monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
-    monkeypatch.setattr(pipeline_module, "write_json_file", fake_write_json_file)  # noqa  
+    monkeypatch.setattr(
+        pipeline_module,
+        "write_json_file",
+        fake_write_json_file,
+    )
     monkeypatch.setattr(pipeline_module, "FunctionSelector", FakeSelector)
 
     pipeline_module.run_pipeline("functions.json", "input.json", "output.json")
@@ -337,7 +165,180 @@ def test_run_pipeline_unclear_intent_is_kept_in_output_as_null_call(
     assert captured_output["data"] == [
         {
             "prompt": "???",
-            "name": None,
-            "parameters": {},
+            "fn_name": None,
+            "args": {},
+        }
+    ]
+
+
+def test_run_pipeline_processes_multiple_prompts_in_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep batch order and serialize each result in scale format."""
+    functions_raw: list[dict[str, Any]] = [
+        make_function(
+            "fn_greet",
+            "Generate a greeting message for a person by name.",
+            {
+                "name": {
+                    "type": "string",
+                    "description": "Name of the person",
+                },
+            },
+            returns_type="string",
+            returns_description="Greeting message",
+        ),
+        make_function(
+            "fn_reverse_string",
+            "Reverse a string and return the reversed result.",
+            {
+                "s": {
+                    "type": "string",
+                    "description": "String to reverse",
+                },
+            },
+            returns_type="string",
+            returns_description="Reversed string",
+        ),
+    ]
+    prompts_raw: list[dict[str, str]] = [
+        {"prompt": "Greet john"},
+        {"prompt": "Reverse the string 'world'"},
+    ]
+
+    captured_output: dict[str, Any] = {}
+
+    def fake_read_json_file(path: object) -> list[dict[str, Any]]:
+        """Return fake input data based on the requested path."""
+        if "functions" in str(path):
+            return functions_raw
+        return prompts_raw
+
+    def fake_write_json_file(path: object, data: Any) -> None:
+        """Capture written output data for assertions."""
+        del path
+        captured_output["data"] = data
+
+    FakeSelector.responses = {
+        "Greet john": SelectionResult(
+            prompt="Greet john",
+            name="fn_greet",
+            parameters={"name": "john"},
+        ),
+        "Reverse the string 'world'": SelectionResult(
+            prompt="Reverse the string 'world'",
+            name="fn_reverse_string",
+            parameters={"s": "world"},
+        ),
+    }
+
+    monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
+    monkeypatch.setattr(
+        pipeline_module,
+        "write_json_file",
+        fake_write_json_file,
+    )
+    monkeypatch.setattr(pipeline_module, "FunctionSelector", FakeSelector)
+
+    pipeline_module.run_pipeline("functions.json", "input.json", "output.json")
+
+    assert captured_output["data"] == [
+        {
+            "prompt": "Greet john",
+            "fn_name": "fn_greet",
+            "args": {"name": "john"},
+        },
+        {
+            "prompt": "Reverse the string 'world'",
+            "fn_name": "fn_reverse_string",
+            "args": {"s": "world"},
+        },
+    ]
+
+
+def test_run_pipeline_serializes_regex_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Serialize the regex substitution case in the final output format."""
+    functions_raw: list[dict[str, Any]] = [
+        make_function(
+            "fn_substitute_string_with_regex",
+            "Replace all occurrences matching a regex pattern in a string.",
+            {
+                "source_string": {
+                    "type": "string",
+                    "description": "Original source string",
+                },
+                "regex": {
+                    "type": "string",
+                    "description": "Regex pattern to apply",
+                },
+                "replacement": {
+                    "type": "string",
+                    "description": "Replacement text",
+                },
+            },
+            returns_type="string",
+            returns_description="Updated string",
+        )
+    ]
+    prompts_raw: list[dict[str, str]] = [
+        {
+            "prompt": (
+                'Replace all numbers in "Hello 34 I\'m 233 years old" '
+                "with NUMBERS"
+            )
+        }
+    ]
+
+    captured_output: dict[str, Any] = {}
+
+    def fake_read_json_file(path: object) -> list[dict[str, Any]]:
+        """Return fake input data based on the requested path."""
+        if "functions" in str(path):
+            return functions_raw
+        return prompts_raw
+
+    def fake_write_json_file(path: object, data: Any) -> None:
+        """Capture written output data for assertions."""
+        del path
+        captured_output["data"] = data
+
+    FakeSelector.responses = {
+        'Replace all numbers in "Hello 34 I\'m 233 years old" with NUMBERS': (
+            SelectionResult(
+                prompt=(
+                    'Replace all numbers in "Hello 34 I\'m 233 years old" '
+                    "with NUMBERS"
+                ),
+                name="fn_substitute_string_with_regex",
+                parameters={
+                    "source_string": "Hello 34 I'm 233 years old",
+                    "regex": r"\d",
+                    "replacement": "NUMBERS",
+                },
+            )
+        )
+    }
+
+    monkeypatch.setattr(pipeline_module, "read_json_file", fake_read_json_file)
+    monkeypatch.setattr(
+        pipeline_module,
+        "write_json_file",
+        fake_write_json_file,
+    )
+    monkeypatch.setattr(pipeline_module, "FunctionSelector", FakeSelector)
+
+    pipeline_module.run_pipeline("functions.json", "input.json", "output.json")
+
+    assert captured_output["data"] == [
+        {
+            "prompt": 'Replace all numbers in "Hello 34 I\'m 233 years old" with NUMBERS', # noqa
+            "fn_name": "fn_substitute_string_with_regex",
+            "args": {
+                "source_string": "Hello 34 I'm 233 years old",
+                "regex": r"\d",
+                "replacement": "NUMBERS",
+            },
         }
     ]

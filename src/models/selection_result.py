@@ -1,12 +1,16 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SelectionResult(BaseModel):
-    """Internal result for function selection/extraction."""
+    """Internal result for function selection and argument extraction."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
 
     prompt: str
-    name: str | None
-    parameters: Dict[str, Any]
-    error: Optional[str] = None
+    name: str | None = None
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None

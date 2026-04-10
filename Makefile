@@ -33,7 +33,7 @@ help:
 	@printf "  lint-strict  Run flake8 . + mypy . --strict excluding llm_sdk and virtualenvs\n"
 	@printf "  test         Run pytest\n"
 	@printf "  clean        Remove caches and generated files\n"
-	@printf "  distclean    clean + remove project .venv\n"
+	@printf "  distclean    clean + remove virtual environment\n"
 
 check-uv:
 	@command -v $(UV) >/dev/null 2>&1 || { \
@@ -70,7 +70,6 @@ run: check-uv
 
 debug: check-uv
 	@printf "$(INFO) Debugging with pdb\n"
-	@mkdir -p data/output
 	@mkdir -p /goinfre/$(USER)/.hf
 	@HF_HOME=/goinfre/$(USER)/.hf \
 	HUGGINGFACE_HUB_CACHE=/goinfre/$(USER)/.hf/hub \
@@ -115,6 +114,7 @@ clean:
 	@printf "$(OK) Clean done\n"
 
 distclean: clean
-	@printf "$(INFO) Removing project-local virtual environment only\n"
+	@printf "$(INFO) Removing virtual environment at $(VENV_DIR)\n"
+	@rm -rf $(VENV_DIR)
 	@rm -rf .venv
 	@printf "$(OK) distclean done\n"

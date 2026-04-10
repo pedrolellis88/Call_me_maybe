@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 import argparse
+import faulthandler
+import sys
 from pathlib import Path
 
 from src.config import (
@@ -38,7 +42,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    """Entry point for the CLI."""
+    """Run the CLI and return the process exit code."""
+    faulthandler.enable()
+    faulthandler.dump_traceback_later(20, repeat=True)
+
     parser = build_parser()
     args = parser.parse_args()
 
@@ -48,9 +55,16 @@ def main() -> int:
             input_path=args.input,
             output_path=args.output,
         )
-    except ProjectError as exc:
-        print(f"Error: {exc}")
+    except KeyboardInterrupt:
+        print("Execution interrupted by user.", file=sys.stderr)
+        return 130
+    except (ProjectError, ValueError, RuntimeError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
+    except Exception as exc:
+        print(f"Unexpected error: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        faulthandler.cancel_dump_traceback_later()
 
-    print("Done.")
     return 0

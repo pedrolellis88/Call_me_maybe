@@ -1,4 +1,11 @@
+from __future__ import annotations
+
+import logging
+from os import PathLike
 from pathlib import Path
+from typing import Any, Literal, TypeVar
+
+from pydantic import BaseModel, ValidationError
 
 from src.file_io.reader import read_json_file
 from src.file_io.writer import write_json_file
@@ -8,33 +15,165 @@ from src.models.prompt_input import PromptInput
 from src.services.function_selector import FunctionSelector
 
 
+LOGGER = logging.getLogger(__name__)
+
+OUTPUT_SCHEMA: Literal["scale", "subject"] = "scale"
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
+PathInput = str | PathLike[str] | Path
+
+
 def run_pipeline(
-    functions_definition_path: str,
-    input_path: str,
-    output_path: str,
+    functions_definition_path: PathInput,
+    input_path: PathInput,
+    output_path: PathInput,
 ) -> None:
-    """Run the full function-calling pipeline."""
-    functions_raw = read_json_file(Path(functions_definition_path))
-    prompts_raw = read_json_file(Path(input_path))
+    """Run the full function-calling pipeline safely."""
+    functions_file = Path(functions_definition_path)
+    input_file = Path(input_path)
+    output_file = Path(output_path)
 
-    functions = [FunctionDefinition(**item) for item in functions_raw]
-    prompts = [PromptInput(**item) for item in prompts_raw]
+    functions_raw = _read_required_json(
+        functions_file,
+        "functions definition file",
+    )
+    prompts_raw = _read_required_json(
+        input_file,
+        "prompt input file",
+    )
 
-    selector = FunctionSelector([fn.model_dump() for fn in functions])
+    functions = _parse_model_list(
+        functions_raw,
+        FunctionDefinition,
+        "function definition",
+    )
+    prompts = _parse_model_list(
+        prompts_raw,
+        PromptInput,
+        "prompt",
+    )
+
+    selector = _build_selector(functions)
 
     results: list[FunctionCallResult] = []
-
     for prompt in prompts:
-        selection = selector.select_and_extract(prompt.prompt)
+        results.append(_process_prompt(prompt, selector))
 
-        result = FunctionCallResult(
-            prompt=selection.prompt,
-            name=selection.name,
-            parameters=selection.parameters if selection.name is not None else {}, # noqa
+    serialized_results = _serialize_results(results)
+    _write_output(output_file, serialized_results)
+
+
+def _read_required_json(path: Path, label: str) -> Any:
+    """Read a JSON file and raise a clear error if it fails."""
+    try:
+        return read_json_file(path)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Could not find {label}: {path}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"Could not read {label}: {path}. {exc}") from exc
+
+
+def _parse_model_list(
+    raw_items: Any,
+    model_type: type[ModelT],
+    item_label: str,
+) -> list[ModelT]:
+    """Validate that raw JSON is a list and parse each item with Pydantic."""
+    if not isinstance(raw_items, list):
+        raise ValueError(
+            f"Expected a JSON array for {item_label}s, got {type(raw_items).__name__}."  # noqa
         )
-        results.append(result)
 
-    write_json_file(
-        Path(output_path),
-        [result.model_dump() for result in results],
+    parsed_items: list[ModelT] = []
+
+    for index, raw_item in enumerate(raw_items):
+        if not isinstance(raw_item, dict):
+            raise ValueError(
+                f"Invalid {item_label} at index {index}: expected an object, "
+                f"got {type(raw_item).__name__}."
+            )
+
+        try:
+            parsed_items.append(model_type(**raw_item))
+        except ValidationError as exc:
+            raise ValueError(
+                f"Invalid {item_label} at index {index}: {exc}"
+            ) from exc
+
+    return parsed_items
+
+
+def _build_selector(
+    functions: list[FunctionDefinition],
+) -> FunctionSelector:
+    """Build the selector from validated function definitions."""
+    try:
+        return FunctionSelector(
+            [function.model_dump() for function in functions]
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not initialize FunctionSelector: {exc}"
+        ) from exc
+
+
+def _process_prompt(
+    prompt: PromptInput,
+    selector: FunctionSelector,
+) -> FunctionCallResult:
+    """Process one prompt without crashing the whole pipeline."""
+    try:
+        selection = selector.select_and_extract(prompt.prompt)
+    except Exception as exc:
+        LOGGER.warning(
+            "Failed to process prompt %r: %s",
+            prompt.prompt,
+            exc,
+        )
+        return FunctionCallResult(
+            prompt=prompt.prompt,
+            name=None,
+            parameters={},
+        )
+
+    selected_prompt = getattr(selection, "prompt", prompt.prompt)
+    selected_name = getattr(selection, "name", None)
+    selected_parameters = getattr(selection, "parameters", {})
+
+    if selected_name is None or not isinstance(selected_parameters, dict):
+        selected_parameters = {}
+
+    return FunctionCallResult(
+        prompt=selected_prompt,
+        name=selected_name,
+        parameters=selected_parameters,
+    )
+
+
+def _write_output(
+    output_path: Path,
+    serialized_results: list[dict[str, Any]],
+) -> None:
+    """Write the output JSON with a clear error message on failure."""
+    try:
+        write_json_file(output_path, serialized_results)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not write output file: {output_path}. {exc}"
+        ) from exc
+
+
+def _serialize_results(
+    results: list[FunctionCallResult],
+) -> list[dict[str, Any]]:
+    """Serialize results using the configured output schema."""
+    if OUTPUT_SCHEMA == "scale":
+        return [result.to_scale_dict() for result in results]
+
+    if OUTPUT_SCHEMA == "subject":
+        return [result.to_subject_dict() for result in results]
+
+    raise ValueError(
+        f"Invalid OUTPUT_SCHEMA: {OUTPUT_SCHEMA!r}. "
+        "Expected 'scale' or 'subject'."
     )

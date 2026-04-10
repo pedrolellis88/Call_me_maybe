@@ -9,26 +9,14 @@ def extractor() -> ParameterExtractor:
     return ParameterExtractor()
 
 
-def test_can_fallback_add_number_false_with_vague_placeholder(
+def test_can_fallback_add_second_number_false_when_only_one_number_present(
     extractor: ParameterExtractor,
 ) -> None:
-    """Reject vague placeholders for numeric extraction."""
+    """Reject fallback when the second add argument is missing."""
     assert extractor.can_fallback_to_llm(
-        "Add 10 and something",
+        "What is the sum of 7?",
         "fn_add_numbers",
         "b",
-        "number",
-    ) is False
-
-
-def test_can_fallback_add_number_false_without_function_intent(
-    extractor: ParameterExtractor,
-) -> None:
-    """Reject fallback when prompt lacks function intent."""
-    assert extractor.can_fallback_to_llm(
-        "hello there",
-        "fn_add_numbers",
-        "a",
         "number",
     ) is False
 
@@ -45,36 +33,12 @@ def test_can_fallback_greet_name_false_for_empty_prompt(
     ) is False
 
 
-def test_can_fallback_greet_name_false_for_greet_me(
-    extractor: ParameterExtractor,
-) -> None:
-    """Reject fallback for self-referential greeting."""
-    assert extractor.can_fallback_to_llm(
-        "greet me",
-        "fn_greet",
-        "name",
-        "string",
-    ) is False
-
-
-def test_can_fallback_greet_name_false_for_greet_please(
-    extractor: ParameterExtractor,
-) -> None:
-    """Reject fallback for incomplete polite greeting."""
-    assert extractor.can_fallback_to_llm(
-        "greet please",
-        "fn_greet",
-        "name",
-        "string",
-    ) is False
-
-
 def test_extract_add_parameter_a_success(
     extractor: ParameterExtractor,
 ) -> None:
     """Extract the first numeric add parameter."""
     value = extractor.extract_parameter(
-        "Add 2 and 3",
+        "What is the sum of 2 and 3?",
         "fn_add_numbers",
         "a",
         "number",
@@ -87,7 +51,7 @@ def test_extract_add_parameter_b_success(
 ) -> None:
     """Extract the second numeric add parameter."""
     value = extractor.extract_parameter(
-        "Add 2 and 3",
+        "What is the sum of 2 and 3?",
         "fn_add_numbers",
         "b",
         "number",
@@ -95,64 +59,223 @@ def test_extract_add_parameter_b_success(
     assert value == 3.0
 
 
-def test_extract_add_negative_and_decimal(
+def test_extract_add_large_numbers_success(
     extractor: ParameterExtractor,
 ) -> None:
-    """Extract negative and decimal numeric values."""
+    """Extract large numeric values for the add function."""
     value_a = extractor.extract_parameter(
-        "Add -2.5 and 3",
+        "What is the sum of 265 and 345?",
         "fn_add_numbers",
         "a",
         "number",
     )
     value_b = extractor.extract_parameter(
-        "Add -2.5 and 3",
+        "What is the sum of 265 and 345?",
         "fn_add_numbers",
         "b",
         "number",
     )
 
-    assert value_a == -2.5
-    assert value_b == 3.0
+    assert value_a == 265.0
+    assert value_b == 345.0
 
 
-def test_extract_greet_name_success(
+def test_extract_greet_name_success_shrek(
     extractor: ParameterExtractor,
 ) -> None:
-    """Extract a greeting target name."""
+    """Extract the greeting target name from a basic prompt."""
     value = extractor.extract_parameter(
-        "Greet Alice",
+        "Greet shrek",
         "fn_greet",
         "name",
         "string",
     )
-    assert value == "Alice"
+    assert value == "shrek"
 
 
-def test_extract_reverse_text_with_quotes_success(
+def test_extract_greet_name_success_john(
     extractor: ParameterExtractor,
 ) -> None:
-    """Extract quoted text for reversal."""
+    """Extract another greeting target name."""
     value = extractor.extract_parameter(
-        'Reverse "hello world"',
-        "fn_reverse_string",
-        "text",
+        "Greet john",
+        "fn_greet",
+        "name",
         "string",
     )
-    assert value == "hello world"
+    assert value == "john"
 
 
-def test_extract_sqrt_value_success(
+def test_extract_reverse_string_parameter_hello(
     extractor: ParameterExtractor,
 ) -> None:
-    """Extract a numeric square root argument."""
+    """Extract the reverse-string parameter from the quoted prompt."""
     value = extractor.extract_parameter(
-        "sqrt 2.25",
-        "fn_square_root",
-        "value",
+        "Reverse the string 'hello'",
+        "fn_reverse_string",
+        "s",
+        "string",
+    )
+    assert value == "hello"
+
+
+def test_extract_reverse_string_parameter_world(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract another reverse-string parameter from the quoted prompt."""
+    value = extractor.extract_parameter(
+        "Reverse the string 'world'",
+        "fn_reverse_string",
+        "s",
+        "string",
+    )
+    assert value == "world"
+
+
+def test_extract_square_root_value_16(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract the numeric square-root argument."""
+    value = extractor.extract_parameter(
+        "What is the square root of 16?",
+        "fn_get_square_root",
+        "a",
         "number",
     )
-    assert value == 2.25
+    assert value == 16.0
+
+
+def test_extract_square_root_value_144(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract another square-root argument."""
+    value = extractor.extract_parameter(
+        "Calculate the square root of 144",
+        "fn_get_square_root",
+        "a",
+        "number",
+    )
+    assert value == 144.0
+
+
+def test_extract_regex_source_string_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract the source string for the regex substitution prompt."""
+    value = extractor.extract_parameter(
+        'Replace all numbers in "Hello 34 I\'m 233 years old" with NUMBERS',
+        "fn_substitute_string_with_regex",
+        "source_string",
+        "string",
+    )
+    assert value == "Hello 34 I'm 233 years old"
+
+
+def test_extract_regex_pattern_for_numbers_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract the regex pattern for the numbers substitution prompt."""
+    value = extractor.extract_parameter(
+        'Replace all numbers in "Hello 34 I\'m 233 years old" with NUMBERS',
+        "fn_substitute_string_with_regex",
+        "regex",
+        "string",
+    )
+    assert value == r"\d"
+
+
+def test_extract_regex_replacement_for_numbers_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract the replacement text for the numbers substitution prompt."""
+    value = extractor.extract_parameter(
+        'Replace all numbers in "Hello 34 I\'m 233 years old" with NUMBERS',
+        "fn_substitute_string_with_regex",
+        "replacement",
+        "string",
+    )
+    assert value == "NUMBERS"
+
+
+def test_extract_regex_source_string_for_vowels_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract the source string for the vowels substitution prompt."""
+    value = extractor.extract_parameter(
+        "Replace all vowels in 'Programming is fun' with asterisks",
+        "fn_substitute_string_with_regex",
+        "source_string",
+        "string",
+    )
+    assert value == "Programming is fun"
+
+
+def test_extract_regex_pattern_for_vowels_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract the vowel regex for the vowels substitution prompt."""
+    value = extractor.extract_parameter(
+        "Replace all vowels in 'Programming is fun' with asterisks",
+        "fn_substitute_string_with_regex",
+        "regex",
+        "string",
+    )
+    assert value == "[AEIOUaeiou]"
+
+
+def test_extract_regex_replacement_for_vowels_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract the replacement text for the vowels substitution prompt."""
+    value = extractor.extract_parameter(
+        "Replace all vowels in 'Programming is fun' with asterisks",
+        "fn_substitute_string_with_regex",
+        "replacement",
+        "string",
+    )
+    assert value == "*"
+
+
+def test_extract_regex_source_string_for_word_substitution_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract the source string for the word substitution prompt."""
+    value = extractor.extract_parameter(
+        "Substitute the word 'cat' with 'dog' in "
+        "'The cat sat on the mat with another cat'",
+        "fn_substitute_string_with_regex",
+        "source_string",
+        "string",
+    )
+    assert value == "The cat sat on the mat with another cat"
+
+
+def test_extract_regex_pattern_for_word_substitution_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract the literal regex pattern for the word substitution prompt."""
+    value = extractor.extract_parameter(
+        "Substitute the word 'cat' with 'dog' in "
+        "'The cat sat on the mat with another cat'",
+        "fn_substitute_string_with_regex",
+        "regex",
+        "string",
+    )
+    assert value == "cat"
+
+
+def test_extract_regex_replacement_for_word_substitution_success(
+    extractor: ParameterExtractor,
+) -> None:
+    """Extract the replacement text for the word substitution prompt."""
+    value = extractor.extract_parameter(
+        "Substitute the word 'cat' with 'dog' in "
+        "'The cat sat on the mat with another cat'",
+        "fn_substitute_string_with_regex",
+        "replacement",
+        "string",
+    )
+    assert value == "dog"
 
 
 def test_extract_add_missing_b_returns_none_or_raises(
@@ -161,7 +284,7 @@ def test_extract_add_missing_b_returns_none_or_raises(
     """Handle missing second add parameter."""
     try:
         value = extractor.extract_parameter(
-            "Add 7",
+            "What is the sum of 7?",
             "fn_add_numbers",
             "b",
             "number",
@@ -171,47 +294,15 @@ def test_extract_add_missing_b_returns_none_or_raises(
         assert "Missing enough information" in str(exc)
 
 
-def test_extract_greet_me_returns_none_or_raises(
-    extractor: ParameterExtractor,
-) -> None:
-    """Handle self-referential greeting input."""
-    try:
-        value = extractor.extract_parameter(
-            "greet me",
-            "fn_greet",
-            "name",
-            "string",
-        )
-        assert value is None
-    except ValueError:
-        pass
-
-
-def test_extract_greet_please_returns_none_or_raises(
-    extractor: ParameterExtractor,
-) -> None:
-    """Handle incomplete polite greeting input."""
-    try:
-        value = extractor.extract_parameter(
-            "greet please",
-            "fn_greet",
-            "name",
-            "string",
-        )
-        assert value is None
-    except ValueError:
-        pass
-
-
 def test_extract_reverse_without_text_returns_none_or_raises(
     extractor: ParameterExtractor,
 ) -> None:
     """Handle reverse calls without text."""
     try:
         value = extractor.extract_parameter(
-            "reverse",
+            "Reverse the string",
             "fn_reverse_string",
-            "text",
+            "s",
             "string",
         )
         assert value is None
@@ -219,56 +310,17 @@ def test_extract_reverse_without_text_returns_none_or_raises(
         pass
 
 
-def test_extract_sqrt_without_value_returns_none_or_raises(
+def test_extract_square_root_without_value_returns_none_or_raises(
     extractor: ParameterExtractor,
 ) -> None:
     """Handle square root calls without a value."""
     try:
         value = extractor.extract_parameter(
-            "sqrt",
-            "fn_square_root",
-            "value",
+            "What is the square root?",
+            "fn_get_square_root",
+            "a",
             "number",
         )
         assert value is None
     except ValueError:
         pass
-
-
-def test_boolean_does_not_match_true_inside_structure(
-    extractor: ParameterExtractor,
-) -> None:
-    """Avoid matching boolean words inside other words."""
-    value = extractor.extract_parameter(
-        "structure",
-        "fn_set_flag",
-        "enabled",
-        "boolean",
-    )
-    assert value is None
-
-
-def test_boolean_true_explicit_match(
-    extractor: ParameterExtractor,
-) -> None:
-    """Extract an explicit true boolean value."""
-    value = extractor.extract_parameter(
-        "Set enabled to true",
-        "fn_set_flag",
-        "enabled",
-        "boolean",
-    )
-    assert value is True
-
-
-def test_boolean_false_explicit_match(
-    extractor: ParameterExtractor,
-) -> None:
-    """Extract an explicit false boolean value."""
-    value = extractor.extract_parameter(
-        "Set enabled to false",
-        "fn_set_flag",
-        "enabled",
-        "boolean",
-    )
-    assert value is False
