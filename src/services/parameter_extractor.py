@@ -198,6 +198,7 @@ class ParameterExtractor(BaseModel):
     ) -> Optional[str]:
         """Extract string/text parameters from the prompt."""
         lowered_name = parameter_name.lower()
+        lowered_function = function_name.lower()
 
         regex_role_value = self._extract_from_regex_context(
             parameter_name=lowered_name,
@@ -205,6 +206,31 @@ class ParameterExtractor(BaseModel):
         )
         if regex_role_value is not None:
             return regex_role_value
+
+        if self._looks_like_template_parameter(lowered_name, lowered_function):
+            template_value = self._extract_template_text(prompt)
+            if template_value is not None:
+                return template_value
+
+        if self._looks_like_database_parameter(lowered_name):
+            database_value = self._extract_database_name(prompt)
+            if database_value is not None:
+                return database_value
+
+        if self._looks_like_query_parameter(lowered_name, lowered_function):
+            query_value = self._extract_sql_query(prompt)
+            if query_value is not None:
+                return query_value
+
+        if self._looks_like_encoding_parameter(lowered_name):
+            encoding_value = self._extract_encoding(prompt)
+            if encoding_value is not None:
+                return encoding_value
+
+        if self._looks_like_path_parameter(lowered_name):
+            path_value = self._extract_file_path(prompt)
+            if path_value is not None:
+                return path_value
 
         if self._looks_like_person_parameter(lowered_name):
             person_value = self._extract_person_text(prompt)
@@ -425,7 +451,6 @@ class ParameterExtractor(BaseModel):
                 continue
 
             raw_value = match.group(1).strip()
-            # Check before cleaning to avoid "the string" becoming "" then None
             if raw_value.lower() in generic_placeholders:
                 continue
 
@@ -473,6 +498,91 @@ class ParameterExtractor(BaseModel):
 
         return None
 
+    def _extract_template_text(self, prompt: str) -> Optional[str]:
+        """Extract full template text after a 'Format template:' prefix."""
+        match = re.search(
+            r"^\s*format\s+template:\s*(?P<value>.+?)\s*$",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            return None
+
+        value = match.group("value")
+        if not value.strip():
+            return None
+
+        return value
+
+    def _extract_sql_query(self, prompt: str) -> Optional[str]:
+        """Extract SQL query text from prompts that mention query execution."""
+        patterns = [
+            r"\bsql\s+query\s+(?P<quote>['\"])(?P<value>.*?)(?P=quote)",
+            r"\bquery\s+(?P<quote>['\"])(?P<value>.*?)(?P=quote)",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, prompt, flags=re.IGNORECASE)
+            if match is not None:
+                return match.group("value")
+
+        return None
+
+    def _extract_database_name(self, prompt: str) -> Optional[str]:
+        """Extract database name from phrases like 'on the production database'."""  # noqa
+        patterns = [
+            r"\b(?:on|in)\s+the\s+([A-Za-z0-9_-]+)\s+database\b",
+            r"\b(?:on|in)\s+([A-Za-z0-9_-]+)\s+database\b",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, prompt, flags=re.IGNORECASE)
+            if match is not None:
+                return match.group(1)
+
+        return None
+
+    def _extract_encoding(self, prompt: str) -> Optional[str]:
+        """Extract encoding name from phrases like 'with utf-8 encoding'."""
+        match = re.search(
+            r"\bwith\s+([A-Za-z0-9._-]+)\s+encoding\b",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            return None
+
+        return match.group(1)
+
+    def _extract_file_path(self, prompt: str) -> Optional[str]:
+        """Extract file paths for Linux and Windows style prompts."""
+        patterns = [
+            (
+                r"\bfile\s+at\s+(?P<value>.+?)\s+with\s+"
+                r"[A-Za-z0-9._-]+\s+encoding\b"
+            ),
+            (
+                r"^\s*read\s+(?P<value>.+?)\s+with\s+"
+                r"[A-Za-z0-9._-]+\s+encoding\s*$"
+            ),
+            r"\bfile\s+at\s+(?P<value>.+?)\s*$",
+            r"^\s*read\s+(?P<value>.+?)\s*$",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, prompt, flags=re.IGNORECASE)
+            if match is None:
+                continue
+
+            value = match.group("value").strip()
+            value = self._strip_wrapping_quotes(value)
+            value = value.strip(" \t\r\n,;")
+            value = re.sub(r"[?.!]+$", "", value)
+            if value:
+                return value
+
+        return None
+
     def _pick_quoted_by_parameter_name(
         self,
         parameter_name: str,
@@ -507,7 +617,7 @@ class ParameterExtractor(BaseModel):
         if self._is_first_like_parameter(parameter_name) and len(numbers) >= 1:
             return numbers[0]
 
-        if self._is_second_like_parameter(parameter_name) and len(numbers) >= 2: # noqa
+        if self._is_second_like_parameter(parameter_name) and len(numbers) >= 2:  # noqa
             return numbers[1]
 
         if any(
@@ -537,7 +647,7 @@ class ParameterExtractor(BaseModel):
         if re.search(r"\b(square root|sqrt|root)\b", lowered_prompt):
             return numbers[0]
 
-        if re.search(r"\b(add|sum|plus)\b", lowered_prompt):
+        if re.search(r"\b(add|sum|plus|product|multiply)\b", lowered_prompt):
             if len(numbers) >= 2:
                 if parameter_name in {"x", "a"}:
                     return numbers[0]
@@ -671,6 +781,53 @@ class ParameterExtractor(BaseModel):
                 "user",
                 "contact",
             )
+        )
+
+    def _looks_like_path_parameter(self, parameter_name: str) -> bool:
+        """Whether the parameter likely stores a file path."""
+        return any(
+            token in parameter_name
+            for token in (
+                "path",
+                "file",
+                "filepath",
+                "filename",
+            )
+        )
+
+    def _looks_like_encoding_parameter(self, parameter_name: str) -> bool:
+        """Whether the parameter likely stores an encoding value."""
+        return any(
+            token in parameter_name
+            for token in (
+                "encoding",
+                "charset",
+            )
+        )
+
+    def _looks_like_database_parameter(self, parameter_name: str) -> bool:
+        """Whether the parameter likely stores a database name."""
+        return parameter_name in {"database", "db"}
+
+    def _looks_like_query_parameter(
+        self,
+        parameter_name: str,
+        function_name: str,
+    ) -> bool:
+        """Whether the parameter likely stores a SQL/query string."""
+        _ = function_name
+        return parameter_name in {"query", "sql", "statement"}
+
+    def _looks_like_template_parameter(
+        self,
+        parameter_name: str,
+        function_name: str,
+    ) -> bool:
+        """Whether the parameter likely stores a template string."""
+        return (
+            parameter_name == "template"
+            or "template" in parameter_name
+            or "template" in function_name
         )
 
     def _is_pattern_parameter(self, parameter_name: str) -> bool:

@@ -1,9 +1,13 @@
+# src/services/function_selector.py
+
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 from src.models.selection_result import SelectionResult
+from src.services.parameter_extractor import ParameterExtractor
 
 
 class FunctionSelector:
@@ -17,6 +21,7 @@ class FunctionSelector:
         self.functions = functions
         self.function_map = self._build_function_map(functions)
         self.debug_enabled = self._is_debug_enabled()
+        self.parameter_extractor = ParameterExtractor()
 
         if decoder is not None:
             self.decoder = decoder
@@ -124,6 +129,41 @@ class FunctionSelector:
             normalized_name = None
 
         return normalized_name, raw_parameters, None
+
+    def _normalize_parameter_spec(
+        self,
+        spec: Any,
+    ) -> dict[str, Any] | None:
+        """Normalize a parameter spec into dict form."""
+        if isinstance(spec, dict):
+            return spec
+
+        if isinstance(spec, str):
+            return {"type": spec}
+
+        return None
+
+    def _extract_parameter_types(
+        self,
+        function_schema: dict[str, Any],
+    ) -> dict[str, str]:
+        """Build a simple name -> type mapping for extraction."""
+        expected_parameters = function_schema.get("parameters", {})
+        if not isinstance(expected_parameters, dict):
+            return {}
+
+        parameter_types: dict[str, str] = {}
+
+        for key, raw_spec in expected_parameters.items():
+            spec = self._normalize_parameter_spec(raw_spec)
+            if spec is None:
+                continue
+
+            raw_type = spec.get("type")
+            if isinstance(raw_type, str) and raw_type.strip():
+                parameter_types[key] = raw_type.strip()
+
+        return parameter_types
 
     def _coerce_parameter_value(
         self,
@@ -241,16 +281,6 @@ class FunctionSelector:
         _ = parameter_name
         return True
 
-    def _normalize_parameter_spec(self, spec: Any) -> dict[str, Any] | None:
-        """Normalize a parameter spec into dict form."""
-        if isinstance(spec, dict):
-            return spec
-
-        if isinstance(spec, str):
-            return {"type": spec}
-
-        return None
-
     def _validate_parameters(
         self,
         function_schema: dict[str, Any],
@@ -302,18 +332,232 @@ class FunctionSelector:
 
         return cleaned_parameters, None
 
+    def _tokenize_text(self, value: str) -> set[str]:
+        """Tokenize text into lowercase alphanumeric fragments."""
+        return set(re.findall(r"[a-z0-9_]+", value.lower()))
+
+    def _schema_text(self, function_schema: dict[str, Any]) -> str:
+        """Build a searchable text blob from schema fields."""
+        name = function_schema.get("name", "")
+        description = function_schema.get("description", "")
+        parameters = function_schema.get("parameters", {})
+
+        parts: list[str] = []
+        if isinstance(name, str):
+            parts.append(name)
+        if isinstance(description, str):
+            parts.append(description)
+
+        if isinstance(parameters, dict):
+            parts.extend(parameters.keys())
+
+        return " ".join(parts).lower()
+
+    def _score_function_for_prompt(
+        self,
+        prompt: str,
+        function_schema: dict[str, Any],
+    ) -> int:
+        """Compute a light lexical score for fallback selection."""
+        prompt_tokens = self._tokenize_text(prompt)
+        schema_text = self._schema_text(function_schema)
+        schema_tokens = self._tokenize_text(schema_text)
+
+        score = 0
+
+        for token in prompt_tokens:
+            if token in schema_tokens:
+                score += 1
+
+        if "template" in prompt.lower() and "template" in schema_text:
+            score += 6
+
+        if "sql" in prompt.lower() and "sql" in schema_text:
+            score += 6
+
+        if "query" in prompt.lower() and "query" in schema_text:
+            score += 4
+
+        if "database" in prompt.lower() and "database" in schema_text:
+            score += 4
+
+        if "read" in prompt.lower() and "read" in schema_text:
+            score += 5
+
+        if "file" in prompt.lower() and "file" in schema_text:
+            score += 5
+
+        if "encoding" in prompt.lower() and "encoding" in schema_text:
+            score += 4
+
+        return score
+
+    def _best_scored_function(
+        self,
+        prompt: str,
+        minimum_score: int = 1,
+    ) -> str | None:
+        """Pick the best lexical fallback above a minimum score."""
+        best_name: str | None = None
+        best_score = minimum_score - 1
+
+        for name, function_schema in self.function_map.items():
+            score = self._score_function_for_prompt(prompt, function_schema)
+            if score > best_score:
+                best_score = score
+                best_name = name
+
+        return best_name
+
+    def _find_function_by_required_terms(
+        self,
+        required_terms: set[str],
+        preferred_terms: set[str] | None = None,
+    ) -> str | None:
+        """Find the schema entry that best matches required/preferred terms."""
+        preferred_terms = preferred_terms or set()
+
+        best_name: str | None = None
+        best_score = -1
+
+        for name, function_schema in self.function_map.items():
+            schema_text = self._schema_text(function_schema)
+            schema_tokens = self._tokenize_text(schema_text)
+
+            if not required_terms.issubset(schema_tokens):
+                continue
+
+            score = 0
+            for term in required_terms:
+                if term in schema_tokens:
+                    score += 5
+            for term in preferred_terms:
+                if term in schema_tokens:
+                    score += 2
+
+            if score > best_score:
+                best_score = score
+                best_name = name
+
+        return best_name
+
+    def _select_fallback_function(
+        self,
+        prompt: str,
+    ) -> str | None:
+        """Select a fallback function when the decoder misses the intent."""
+        lowered_prompt = prompt.strip().lower()
+
+        if re.search(
+            r"\b(?:execute\s+sql\s+query|run\s+the\s+query|sql\s+query)\b",
+            lowered_prompt,
+        ):
+            sql_name = self._find_function_by_required_terms(
+                required_terms={"query"},
+                preferred_terms={"sql", "database", "execute"},
+            )
+            if sql_name is not None:
+                return sql_name
+
+        if (
+            re.search(r"^\s*read\b", lowered_prompt)
+            or "file at" in lowered_prompt
+            or "encoding" in lowered_prompt
+        ):
+            read_name = self._find_function_by_required_terms(
+                required_terms={"read"},
+                preferred_terms={"file", "path", "encoding"},
+            )
+            if read_name is not None:
+                return read_name
+
+        if re.search(r"^\s*format\s+template:", lowered_prompt):
+            template_name = self._find_function_by_required_terms(
+                required_terms={"template"},
+                preferred_terms={"format"},
+            )
+            if template_name is not None:
+                return template_name
+
+        return self._best_scored_function(prompt, minimum_score=3)
+
+    def _merge_parameter_values(
+        self,
+        expected_type: str,
+        decoder_value: Any,
+        extracted_value: Any,
+    ) -> Any:
+        """Prefer local extraction for strings; keep decoder when appropriate."""  # noqa
+        normalized_type = expected_type.strip().lower()
+
+        if extracted_value is None:
+            return decoder_value
+
+        if decoder_value is None:
+            return extracted_value
+
+        if normalized_type in {"string", "str", "text"}:
+            return extracted_value
+
+        return decoder_value
+
+    def _build_candidate_parameters(
+        self,
+        prompt: str,
+        function_name: str,
+        decoder_parameters: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge decoder parameters with local extraction from the prompt."""
+        function_schema = self.function_map[function_name]
+        parameter_types = self._extract_parameter_types(function_schema)
+        extracted_parameters = self.parameter_extractor.extract_parameters(
+            prompt=prompt,
+            function_name=function_name,
+            parameters=parameter_types,
+        )
+
+        merged_parameters: dict[str, Any] = {}
+
+        for key, expected_type in parameter_types.items():
+            decoder_value = decoder_parameters.get(key)
+            extracted_value = extracted_parameters.get(key)
+
+            merged_value = self._merge_parameter_values(
+                expected_type=expected_type,
+                decoder_value=decoder_value,
+                extracted_value=extracted_value,
+            )
+            if merged_value is not None:
+                merged_parameters[key] = merged_value
+
+        return merged_parameters
+
     def select_and_extract(self, prompt: str) -> SelectionResult:
         """Run the decoder, validate the chosen function, and clean parameters."""  # noqa
         try:
             self._debug(f"prompt={prompt!r}")
-            result = self._call_decoder(prompt)
-            self._debug(f"raw_decoder_output={result!r}")
+            raw_result = self._call_decoder(prompt)
+            self._debug(f"raw_decoder_output={raw_result!r}")
 
-            name, parameters, normalize_error = self._normalize_decoder_output(
-                result
+            decoder_name, decoder_parameters, normalize_error = (
+                self._normalize_decoder_output(raw_result)
             )
+
             if normalize_error is not None:
                 self._debug(f"normalize_error={normalize_error}")
+                decoder_name = None
+                decoder_parameters = {}
+
+            candidate_name = decoder_name
+            if candidate_name is not None and candidate_name not in self.function_map:  # noqa
+                self._debug(f"unknown_function={candidate_name!r}")
+                candidate_name = None
+
+            if candidate_name is None:
+                candidate_name = self._select_fallback_function(prompt)
+                self._debug(f"fallback_function={candidate_name!r}")
+
+            if candidate_name is None:
                 return SelectionResult(
                     prompt=prompt,
                     name=None,
@@ -321,32 +565,22 @@ class FunctionSelector:
                     error=normalize_error,
                 )
 
-            if name is None:
-                self._debug("decoder did not determine a function")
-                return SelectionResult(
-                    prompt=prompt,
-                    name=None,
-                    parameters={},
-                    error=None,
-                )
-
-            if name not in self.function_map:
-                self._debug(f"unknown_function={name!r}")
-                return SelectionResult(
-                    prompt=prompt,
-                    name=None,
-                    parameters={},
-                    error=f"Decoder selected unknown function: {name}",
-                )
+            candidate_parameters = self._build_candidate_parameters(
+                prompt=prompt,
+                function_name=candidate_name,
+                decoder_parameters=decoder_parameters,
+            )
 
             validated_parameters, validation_error = self._validate_parameters(
-                self.function_map[name],
-                parameters,
+                self.function_map[candidate_name],
+                candidate_parameters,
             )
+
             if validation_error is not None:
                 self._debug(
                     "validation_error="
-                    f"{validation_error}; name={name!r}; parameters={parameters!r}"  # noqa
+                    f"{validation_error}; name={candidate_name!r}; "
+                    f"parameters={candidate_parameters!r}"
                 )
                 return SelectionResult(
                     prompt=prompt,
@@ -356,11 +590,12 @@ class FunctionSelector:
                 )
 
             self._debug(
-                f"ok name={name!r}; validated_parameters={validated_parameters!r}"  # noqa
+                f"ok name={candidate_name!r}; "
+                f"validated_parameters={validated_parameters!r}"
             )
             return SelectionResult(
                 prompt=prompt,
-                name=name,
+                name=candidate_name,
                 parameters=validated_parameters,
             )
 

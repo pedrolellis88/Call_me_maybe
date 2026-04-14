@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import faulthandler
 import sys
 from pathlib import Path
 
@@ -43,9 +42,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     """Run the CLI and return the process exit code."""
-    faulthandler.enable()
-    faulthandler.dump_traceback_later(20, repeat=True)
-
     parser = build_parser()
     args = parser.parse_args()
 
@@ -64,7 +60,5 @@ def main() -> int:
     except Exception as exc:
         print(f"Unexpected error: {exc}", file=sys.stderr)
         return 1
-    finally:
-        faulthandler.cancel_dump_traceback_later()
 
     return 0
